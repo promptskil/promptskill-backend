@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main, dev, release]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        continue-on-error: true     # remove after Step 0.4
+
+      - name: Lint (ruff)
+        run: ruff check app/
+        continue-on-error: true     # remove after Step 0.4
+
+      - name: Type check (mypy)
+        run: mypy app/ --ignore-missing-imports
+        continue-on-error: true     # remove after Step 0.4
+
+      - name: Test (pytest)
+        run: pytest tests/ -v
+        continue-on-error: true     # remove after Step 0.4
