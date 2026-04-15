@@ -140,20 +140,24 @@ async def generate_prompt(
             ),
             timeout=_GENERATE_TIMEOUT_SECONDS,
         )
-        # Narrow ContentBlock union to TextBlock — Anthropic may return
-        # ThinkingBlock / ToolUseBlock when extended-thinking or tools are
-        # active. Picking the first text block keeps us correct under any
-        # mode; raising if absent surfaces a real model-config bug.
-        first_text = next(
-            (b for b in response.content
-             if isinstance(b, anthropic.types.TextBlock)),
+        # Narrow ContentBlock union to a text-bearing block via duck typing.
+        # Anthropic may return ThinkingBlock / ToolUseBlock when extended
+        # thinking or tools are active — those have no `.text` attribute,
+        # so we'd AttributeError on `.content[0].text`. Duck-typing on
+        # `getattr(..., "text", None)` + `isinstance(_, str)` keeps us
+        # correct in prod (real TextBlock matches; non-text blocks skip)
+        # AND under MagicMock test fixtures that set `.text` to a string.
+        prompt_text = next(
+            (
+                t for t in (getattr(b, "text", None) for b in response.content)
+                if isinstance(t, str)
+            ),
             None,
         )
-        if first_text is None:
+        if prompt_text is None:
             raise RuntimeError(
                 "anthropic_response_missing_text_block"
             )
-        prompt_text = first_text.text
 
     except anthropic.RateLimitError:
         # Dispatch to Celery retry worker; API waits on result.

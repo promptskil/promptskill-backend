@@ -24,18 +24,35 @@ deploy) → schedule typing pass after Phase 10 ships.
 
 ---
 
-## Pattern 6 — FIXED
+## Pattern 6 — FIXED (revised)
 
 `anthropic.types.ContentBlock` is an 11-member union (`TextBlock`,
 `ThinkingBlock`, `ToolUseBlock`, `RedactedThinkingBlock`, ...). Calling
 `.text` directly on `response.content[0]` is a runtime crash whenever
 extended thinking or tools are active.
 
-- `app/services/generate_service.py:143` — narrowed via
-  `isinstance(b, anthropic.types.TextBlock)`; raises
-  `RuntimeError("anthropic_response_missing_text_block")` if no text
-  block is present.
-- `app/tasks/generate_task.py:106` — same fix.
+**First attempt** used `isinstance(b, anthropic.types.TextBlock)`
+narrowing. That broke 11 tests because the test fixtures construct
+`MagicMock(text="...")` for `response.content[0]`, which is NOT a
+subclass of `TextBlock` — duck-typed mocks failed structural typing.
+
+**Final fix** uses duck typing on `getattr(b, "text", None)` plus
+`isinstance(_, str)`:
+
+- `app/services/generate_service.py` — `prompt_text = next(...)` over
+  `(getattr(b, "text", None) for b in response.content)` filtered to
+  `isinstance(t, str)`; raises
+  `RuntimeError("anthropic_response_missing_text_block")` if no
+  text-bearing block found.
+- `app/tasks/generate_task.py` — same pattern, returns the first
+  string-typed `.text` value.
+
+This works for all four cases:
+1. Real `TextBlock` — `.text` is `str` → match.
+2. Real `ThinkingBlock` / `ToolUseBlock` — no `.text` attr → `None` → skip.
+3. `MagicMock(text="literal")` (current tests) — `.text` is `str` → match.
+4. Bare `MagicMock()` faking a non-text block — `.text` auto-vivifies
+   to a `MagicMock`, fails `isinstance(_, str)` → correctly skipped.
 
 ---
 
