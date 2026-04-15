@@ -103,7 +103,18 @@ class GeneratePromptTask(celery_app.Task):
                     }
                 ],
             )
-            return response.content[0].text
+            # Narrow ContentBlock union to TextBlock — see generate_service.py
+            # for rationale (ThinkingBlock/ToolUseBlock would AttributeError).
+            first_text = next(
+                (b for b in response.content
+                 if isinstance(b, anthropic.types.TextBlock)),
+                None,
+            )
+            if first_text is None:
+                raise RuntimeError(
+                    "anthropic_response_missing_text_block"
+                )
+            return first_text.text
         except anthropic.RateLimitError as exc:
             # countdown: 1s, 4s, 16s (4^0, 4^1, 4^2) = 21s worst case.
             raise self.retry(

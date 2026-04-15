@@ -140,7 +140,20 @@ async def generate_prompt(
             ),
             timeout=_GENERATE_TIMEOUT_SECONDS,
         )
-        prompt_text = response.content[0].text
+        # Narrow ContentBlock union to TextBlock — Anthropic may return
+        # ThinkingBlock / ToolUseBlock when extended-thinking or tools are
+        # active. Picking the first text block keeps us correct under any
+        # mode; raising if absent surfaces a real model-config bug.
+        first_text = next(
+            (b for b in response.content
+             if isinstance(b, anthropic.types.TextBlock)),
+            None,
+        )
+        if first_text is None:
+            raise RuntimeError(
+                "anthropic_response_missing_text_block"
+            )
+        prompt_text = first_text.text
 
     except anthropic.RateLimitError:
         # Dispatch to Celery retry worker; API waits on result.
