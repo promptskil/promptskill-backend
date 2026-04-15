@@ -1,0 +1,27 @@
+# Railway configuration — PromptSkill backend
+#
+# The web service runs the release-phase command before starting.
+# Worker and beat services share the same repo + env but don't run
+# migrations — only web does, to avoid race conditions on multi-
+# service deploys.
+#
+# Set the `startCommand` per service in the Railway dashboard to:
+#   web:     (leave blank — uses Procfile `web`)
+#   worker:  (leave blank — uses Procfile `worker`)
+#   beat:    (leave blank — uses Procfile `beat`)
+#
+# Only the web service should have a release command. For worker /
+# beat, leave the release field unset in their service settings.
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+# release-phase for the web service — run migrations before boot.
+# Railway runs this once per deploy before starting the web process.
+# Idempotent: alembic upgrade head is a no-op if schema is current.
+preDeployCommand = "alembic upgrade head"
+# Sensible restart policy — infrastructure-level failures bounce the
+# service; app-level 500s do not.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

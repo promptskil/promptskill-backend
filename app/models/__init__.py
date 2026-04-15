@@ -1,4 +1,5 @@
 from app.database import Base
+from app.models.dead_letter_email import DeadLetterEmail
 from app.models.prompt import Prompt, PromptVote
 from app.models.reset_token import PasswordResetToken
 from app.models.session import Session
@@ -11,4 +12,5 @@ __all__ = [
     "PasswordResetToken",
     "Prompt",
     "PromptVote",
+    "DeadLetterEmail",
 ]

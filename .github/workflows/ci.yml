@@ -1,5 +1,11 @@
 name: CI
 
+# Runs on every push and on PRs targeting protected branches.
+# Phase 9.3: this workflow is the required status check that gates
+# Railway's auto-deploy from main. Without a green run here, a push
+# to main should NOT be merged. Configure branch protection in
+# GitHub: Settings → Branches → main → Require status checks → "test".
+
 on:
   push:
     branches: ["**"]
@@ -9,6 +15,36 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Postgres 16 service container — tests use SAVEPOINT rollback
+    # against a real DB per Decision A1, so a live Postgres is mandatory.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: promptskill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    env:
+      # asyncpg driver — matches app.database expectations.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/promptskill_test
+      # Dummy secrets — config.py requires these non-empty at import.
+      # Real secrets live only in Railway dashboards.
+      JWT_SECRET: ci-test-secret-not-used-in-prod
+      ANTHROPIC_API_KEY: ci-test-key-not-used
+      RESEND_API_KEY: ci-test-key-mocked-in-conftest
+      # Sentry disabled in CI — empty DSN short-circuits init.
+      SENTRY_DSN: ""
+      DEBUG_SENTRY: "false"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,9 +52,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Lint (ruff)
         run: ruff check app/
@@ -26,5 +65,10 @@ jobs:
       - name: Type check (mypy)
         run: mypy app/ --ignore-missing-imports
 
-      - name: Test (pytest)
+      - name: Run migrations (alembic upgrade head)
+        run: alembic upgrade head
+
+      - name: Test (pytest with coverage gate)
+        # pytest.ini sets --cov=app --cov-fail-under=85.
+        # Non-zero exit here blocks merge if protection is configured.
         run: pytest tests/ -v

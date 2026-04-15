@@ -1,5 +1,23 @@
 import asyncio
+import os
 from logging.config import fileConfig
+from pathlib import Path
+
+# Load .env into os.environ before importing app modules — mirrors
+# conftest.py pattern. Required because alembic runs from a bare
+# PowerShell/bash shell that does not inherit project env vars;
+# app.database raises if DATABASE_URL is missing at import.
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    for _raw in _env_path.read_text().splitlines():
+        _line = _raw.strip()
+        if not _line or _line.startswith("#") or "=" not in _line:
+            continue
+        _k, _, _v = _line.partition("=")
+        _v = _v.strip()
+        if len(_v) >= 2 and _v[0] == _v[-1] and _v[0] in ('"', "'"):
+            _v = _v[1:-1]
+        os.environ.setdefault(_k.strip(), _v)
 
 from alembic import context
 from sqlalchemy import pool
