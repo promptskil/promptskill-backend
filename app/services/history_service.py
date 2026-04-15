@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.prompt import Prompt, PromptVote
 
-
 _MAX_HISTORY_LIMIT = 50
 
 

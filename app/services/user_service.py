@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 
-
 # ─────────────────────── get_user ────────────────────────────────────────
 
 async def get_user(user_id: UUID, db: AsyncSession) -> dict:

@@ -39,6 +39,7 @@ import sys
 
 import redis
 import resend
+from celery.signals import worker_process_init
 
 try:
     import sentry_sdk
@@ -66,7 +67,6 @@ resend.api_key = settings.RESEND_API_KEY
 # - Only real Celery workers trigger init.
 # - try/except keeps worker alive even on BadDsn — Sentry simply stays
 #   off, DLQ sinks 2-4 continue to function.
-from celery.signals import worker_process_init
 
 
 @worker_process_init.connect
@@ -123,7 +123,7 @@ def _redact_email(email: str) -> str:
     return f"{local[0]}***@{domain}"
 
 
-def _dlq_postgres_insert(  # pragma: no cover — infra sink, mocked in tests via conftest._mock_dlq_sinks
+def _dlq_postgres_insert(  # pragma: no cover
     task_id: str,
     task_name: str,
     recipient: str,
@@ -149,7 +149,7 @@ def _dlq_postgres_insert(  # pragma: no cover — infra sink, mocked in tests vi
         db.commit()
 
 
-def _dlq_redis_push(payload: dict) -> None:  # pragma: no cover — infra sink, mocked in tests via conftest._mock_dlq_sinks
+def _dlq_redis_push(payload: dict) -> None:  # pragma: no cover
     """Hot-view DLQ. Bounded via LTRIM. Best-effort — Postgres wins."""
     client = redis.Redis.from_url(
         settings.REDIS_URL, socket_timeout=2

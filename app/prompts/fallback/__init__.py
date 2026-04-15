@@ -7,7 +7,7 @@ Spec: /api L522-525 — on anthropic.APIStatusError (500),
 Public surface:
     get_fallback(model, topic) -> str
 """
-from app.prompts.fallback import claude, chatgpt, gemini, grok
+from app.prompts.fallback import chatgpt, claude, gemini, grok
 
 _DISPATCH = {
     "claude": claude.generate_fallback,
