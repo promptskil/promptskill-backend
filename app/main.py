@@ -1,8 +1,95 @@
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
-app = FastAPI()
+from app.config import settings
+from app.exceptions import validation_exception_handler
+from app.rate_limit import limiter
+from app.routers import auth as auth_router
+from app.routers import generate as generate_router
+from app.routers import history as history_router
+from app.routers import user as user_router
+from app.services.generate_service import load_model_registry
+
+# Optional Sentry — guarded against placeholder DSN.
+# Integration imports are best-effort: if extras aren't installed or
+# the SDK version lacks them, fall back to bare init so boot never
+# crashes on observability wiring (per Phase 9 — Step 9.2 risk note).
+if settings.SENTRY_DSN and settings.SENTRY_DSN.startswith("https://"):
+    import sentry_sdk
+
+    _integrations = []
+    try:
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        _integrations.append(FastApiIntegration())
+    except Exception:  # noqa: BLE001 — never crash boot on obs wiring
+        pass
+    try:
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        _integrations.append(SqlalchemyIntegration())
+    except Exception:  # noqa: BLE001
+        pass
+
+    _init_kwargs = {
+        "dsn": settings.SENTRY_DSN,
+        "environment": settings.SENTRY_ENVIRONMENT,
+        "traces_sample_rate": settings.SENTRY_TRACES_SAMPLE_RATE,
+        "profiles_sample_rate": settings.SENTRY_PROFILES_SAMPLE_RATE,
+        "integrations": _integrations,
+        "send_default_pii": False,
+    }
+    if settings.SENTRY_RELEASE:
+        _init_kwargs["release"] = settings.SENTRY_RELEASE
+
+    sentry_sdk.init(**_init_kwargs)
+
+app = FastAPI(title="PromptSkill API", version="0.1.0")
+
+# CORS — dev-open, lock down at Phase 16
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Rate limiter (Option A — decorator-based, no SlowAPIMiddleware)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# 422 → 400 handler
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+
+# Startup — populate MODEL_REGISTRY before first request (Phase 5 — Step 5.3)
+@app.on_event("startup")
+async def _load_registry_on_startup() -> None:
+    load_model_registry()
+
+
+# Routers
+app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
+app.include_router(generate_router.router, tags=["generate"])
+app.include_router(history_router.router, tags=["history"])
+app.include_router(user_router.router, tags=["user"])
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ─────────────────────── /debug-sentry — flag-gated verification ────────
+#
+# One-shot endpoint for confirming the Sentry DSN + integrations actually
+# route events. Gate: settings.DEBUG_SENTRY (default False). Register the
+# route only when the flag is on — absent entirely in prod. Phase 9
+# Step 9.2 ops verification uses this; production Railway env MUST NOT
+# set DEBUG_SENTRY=true.
+if settings.DEBUG_SENTRY:
+    @app.get("/debug-sentry")
+    async def _debug_sentry():
+        raise RuntimeError("sentry_debug_probe")

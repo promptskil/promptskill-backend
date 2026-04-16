@@ -1,0 +1,34 @@
+# Railway configuration — PromptSkill backend
+#
+# The web service runs the release-phase command before starting.
+# Worker and beat services share the same repo + env but don't run
+# migrations — only web does, to avoid race conditions on multi-
+# service deploys.
+#
+# Nixpacks does NOT auto-match service names to Procfile entries —
+# it defaults all services to the `web:` Procfile entry. Set Custom
+# Start Commands in Railway dashboard for each service:
+#   web:     (leave blank — Nixpacks default picks uvicorn from Procfile)
+#   worker:  celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+#   beat:    celery -A app.tasks.celery_app beat --loglevel=info
+#
+# Migrations: set as pre-deploy command on the web service ONLY
+# in Railway dashboard (Settings → Deploy → Add pre-deploy step →
+# "alembic upgrade head"). Do NOT put migrations in ANY of these:
+#   - preDeployCommand in this file — Nixpacks runs it at BUILD time
+#   - release: in Procfile — Nixpacks also runs it at BUILD time
+# Both execute without env vars (no DATABASE_URL), causing failures.
+# Only Railway's dashboard pre-deploy step runs at DEPLOY time with
+# env vars injected.
+
+[build]
+# Dockerfile restored — Nixpacks produced inconsistent builds
+# across services (worker missing source files). Dockerfile is
+# deterministic: same image, same files, every service.
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Restart policy only — no preDeployCommand (see comment above).
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
