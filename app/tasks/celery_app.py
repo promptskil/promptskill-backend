@@ -9,6 +9,7 @@ Sync/async rule: full-stack-engineer L948-L954.
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 
 _BROKER = os.getenv("REDIS_URL", "memory://")
 
@@ -31,4 +32,10 @@ celery_app.conf.update(
     enable_utc=True,
     task_always_eager=False,
     broker_connection_retry_on_startup=True,
+    beat_schedule={
+        "weekly-purge": {
+            "task": "purge_job_task",
+            "schedule": crontab(hour=0, minute=0, day_of_week=1),
+        },
+    },
 )
