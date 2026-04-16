@@ -5,23 +5,22 @@
 # migrations — only web does, to avoid race conditions on multi-
 # service deploys.
 #
-# Set the `startCommand` per service in the Railway dashboard to:
-#   web:     (leave blank — uses Procfile `web`)
-#   worker:  (leave blank — uses Procfile `worker`)
-#   beat:    (leave blank — uses Procfile `beat`)
+# Nixpacks does NOT auto-match service names to Procfile entries —
+# it defaults all services to the `web:` Procfile entry. Set Custom
+# Start Commands in Railway dashboard for each service:
+#   web:     (leave blank — Nixpacks default picks uvicorn from Procfile)
+#   worker:  celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+#   beat:    celery -A app.tasks.celery_app beat --loglevel=info
 #
-# Only the web service should have a release command. For worker /
-# beat, leave the release field unset in their service settings.
+# Migrations: set as pre-deploy command on the web service ONLY
+# in Railway dashboard (Settings → Deploy → Add pre-deploy step →
+# "alembic upgrade head"). Do NOT use preDeployCommand here — Nixpacks
+# runs it at BUILD time without env vars, causing import failures.
 
 [build]
 builder = "NIXPACKS"
 
 [deploy]
-# release-phase for the web service — run migrations before boot.
-# Railway runs this once per deploy before starting the web process.
-# Idempotent: alembic upgrade head is a no-op if schema is current.
-preDeployCommand = "alembic upgrade head"
-# Sensible restart policy — infrastructure-level failures bounce the
-# service; app-level 500s do not.
+# Restart policy only — no preDeployCommand (see comment above).
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
