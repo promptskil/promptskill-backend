@@ -14,8 +14,12 @@
 #
 # Migrations: set as pre-deploy command on the web service ONLY
 # in Railway dashboard (Settings → Deploy → Add pre-deploy step →
-# "alembic upgrade head"). Do NOT use preDeployCommand here — Nixpacks
-# runs it at BUILD time without env vars, causing import failures.
+# "alembic upgrade head"). Do NOT put migrations in ANY of these:
+#   - preDeployCommand in this file — Nixpacks runs it at BUILD time
+#   - release: in Procfile — Nixpacks also runs it at BUILD time
+# Both execute without env vars (no DATABASE_URL), causing failures.
+# Only Railway's dashboard pre-deploy step runs at DEPLOY time with
+# env vars injected.
 
 [build]
 builder = "NIXPACKS"
