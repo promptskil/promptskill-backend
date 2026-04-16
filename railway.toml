@@ -22,7 +22,11 @@
 # env vars injected.
 
 [build]
-builder = "NIXPACKS"
+# Dockerfile restored — Nixpacks produced inconsistent builds
+# across services (worker missing source files). Dockerfile is
+# deterministic: same image, same files, every service.
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 # Restart policy only — no preDeployCommand (see comment above).
