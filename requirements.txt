@@ -9,6 +9,8 @@ pydantic[email]
 pyjwt
 bcrypt
 anthropic
+openai
+google-genai
 celery[redis]
 resend
 sentry-sdk[fastapi,celery,sqlalchemy]

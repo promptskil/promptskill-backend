@@ -8,6 +8,9 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
     ANTHROPIC_API_KEY: str
+    OPENAI_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+    XAI_API_KEY: str = ""
     JWT_SECRET: str
     RESEND_API_KEY: str = ""
     SENTRY_DSN: str = ""

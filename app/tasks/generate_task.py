@@ -1,4 +1,4 @@
-"""Generate retry task — Phase 4 — Step 4.3.
+"""Generate retry task — Phase 4 — Step 4.3 (Layer 7 v2 — multi-provider).
 
 Class-based Celery task. on_failure is a METHOD on the class
 (full-stack-engineer L871-L877) — NOT a nested function inside run(),
@@ -8,10 +8,10 @@ after max_retries is exhausted.
 Sync/async boundary (full-stack-engineer L948-L954):
   The Celery worker is a separate PROCESS. FastAPI's async event loop
   does NOT extend into Celery tasks. Do NOT use async/await inside
-  task methods. Use anthropic.Anthropic() (sync), NOT AsyncAnthropic.
+  task methods. Use ModelClient.generate() (sync), NOT agenerate().
 
 Retry policy (spec L917-L924):
-  Only anthropic.RateLimitError (HTTP 429) triggers retry.
+  Only ProviderRateLimitError (HTTP 429) triggers retry.
   countdown = 4 ** retries → 1s, 4s, 16s = 21s total worst case.
   Phase 6 generate service uses task.get(timeout=28) — 2s buffer over
   worst-case retry budget.
@@ -32,10 +32,8 @@ this module loads cleanly before Phase 5 ships. Tests mock the import.
 """
 import json
 import logging
-import os
 from datetime import datetime, timezone
 
-import anthropic
 import redis
 
 from app.config import settings
@@ -82,46 +80,27 @@ class GeneratePromptTask(celery_app.Task):
         # Lazy import — Phase 5 dependency. Loading this at module
         # top would couple Phase 4 readiness to Phase 5 shipping.
         from app.services.generate_service import MODEL_REGISTRY
+        from app.services.model_clients import (
+            ProviderRateLimitError,
+            get_client,
+        )
 
         config = MODEL_REGISTRY[model]
 
+        # Build user message from config template (Layer 7 v2)
+        user_message = config["user_message_template"].format(topic=topic)
+
         # Sync client per spec sync/async boundary rule.
-        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        provider_client = get_client(config["provider"])
 
         try:
-            response = client.messages.create(
-                model=config["anthropic_model_id"],
+            return provider_client.generate(
+                system_prompt=config["system_prompt"],
+                user_message=user_message,
+                model_id=config["provider_model_id"],
                 max_tokens=1000,
-                system=config["system_prompt"],
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Generate an optimized {model} prompt "
-                            f"for: '{topic}'"
-                        ),
-                    }
-                ],
             )
-            # Narrow ContentBlock union via duck typing — see
-            # generate_service.py for full rationale. Filter to blocks
-            # whose `.text` attribute is an actual string; this keeps
-            # both real `TextBlock` (prod) and `MagicMock(text="...")`
-            # (tests) working, while still skipping ThinkingBlock /
-            # ToolUseBlock that would have AttributeError'd before.
-            text_value = next(
-                (
-                    t for t in (getattr(b, "text", None) for b in response.content)
-                    if isinstance(t, str)
-                ),
-                None,
-            )
-            if text_value is None:
-                raise RuntimeError(
-                    "anthropic_response_missing_text_block"
-                )
-            return text_value
-        except anthropic.RateLimitError as exc:
+        except ProviderRateLimitError as exc:
             # countdown: 1s, 4s, 16s (4^0, 4^1, 4^2) = 21s worst case.
             raise self.retry(
                 exc=exc,
