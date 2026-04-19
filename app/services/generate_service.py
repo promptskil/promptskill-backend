@@ -25,8 +25,6 @@ import logging
 import uuid
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 import celery.exceptions
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +36,8 @@ from app.services.model_clients import (
     ProviderRateLimitError,
     get_client,
 )
+
+logger = logging.getLogger(__name__)
 
 try:
     import sentry_sdk

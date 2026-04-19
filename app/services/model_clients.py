@@ -14,8 +14,8 @@ Spec: path-b-multi-provider-architecture.md — Requirements §1
 """
 from __future__ import annotations
 
-import os
 from abc import ABC, abstractmethod
+import os
 
 import anthropic
 import openai
