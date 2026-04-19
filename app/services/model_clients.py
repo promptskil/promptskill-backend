@@ -14,7 +14,6 @@ Spec: path-b-multi-provider-architecture.md — Requirements §1
 """
 from __future__ import annotations
 
-import os
 from abc import ABC, abstractmethod
 
 import anthropic
@@ -110,7 +109,7 @@ class AnthropicClient(ModelClient):
         max_tokens: int = 1000,
     ) -> str:
         client = anthropic.Anthropic(
-            api_key=os.getenv("ANTHROPIC_API_KEY", settings.ANTHROPIC_API_KEY)
+            api_key=settings.ANTHROPIC_API_KEY
         )
         try:
             response = client.messages.create(
