@@ -20,6 +20,6 @@ pytest
 pytest-asyncio
 pytest-cov
 redis
-ruff
+ruff>=0.4.0
 mypy
 black
