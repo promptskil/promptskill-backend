@@ -9,6 +9,8 @@ pydantic[email]
 pyjwt
 bcrypt
 anthropic
+openai
+google-genai
 celery[redis]
 resend
 sentry-sdk[fastapi,celery,sqlalchemy]
@@ -18,6 +20,6 @@ pytest
 pytest-asyncio
 pytest-cov
 redis
-ruff
+ruff>=0.4.0
 mypy
 black

@@ -1,10 +1,10 @@
-"""Model registry + fallback tests — Phase 5.
+"""Model registry + fallback tests — Phase 5 (Layer 7 v2 — multi-provider).
 
 Gate coverage (from /build-checklist):
-  Step 5.1 — version, system_prompt, anthropic_model_id present in
-             all four JSON files (claude, chatgpt, gemini, grok)
+  Step 5.1 — version, system_prompt, provider, provider_model_id,
+             user_message_template present in all four JSON files
   Step 5.2 — topic injected in all four fallback models
-  Step 5.3 — MODEL_REGISTRY['claude']['version'] == 'v1'
+  Step 5.3 — MODEL_REGISTRY['claude']['version'] == 'v2'
              load_model_registry() populates all four models
 """
 import json
@@ -32,7 +32,7 @@ def _reload_registry():
     yield
 
 
-# ─────────────────────── Step 5.1 gates ─────────────────────────────────
+# ─────────────────────── Step 5.1 gates ───────────────────────────────────
 
 def test_all_four_models_present():
     assert set(MODEL_REGISTRY.keys()) == set(_MODEL_NAMES)
@@ -58,11 +58,22 @@ def test_version_is_not_reserved_fallback(model):
     assert MODEL_REGISTRY[model]["version"] != _RESERVED_VERSION
 
 
-# ─────────────────────── Step 5.3 gate ──────────────────────────────────
+@pytest.mark.parametrize("model", _MODEL_NAMES)
+def test_config_has_valid_provider(model):
+    valid = ("anthropic", "openai", "gemini", "xai")
+    assert MODEL_REGISTRY[model]["provider"] in valid
 
-def test_claude_version_is_v1():
-    """Phase 5 closing gate per checklist Step 5.3."""
-    assert MODEL_REGISTRY["claude"]["version"] == "v1"
+
+@pytest.mark.parametrize("model", _MODEL_NAMES)
+def test_user_message_template_has_topic_placeholder(model):
+    assert "{topic}" in MODEL_REGISTRY[model]["user_message_template"]
+
+
+# ─────────────────────── Step 5.3 gate ────────────────────────────────────
+
+def test_claude_version_is_v2():
+    """Layer 7 v2 — version bumped from v1 to v2."""
+    assert MODEL_REGISTRY["claude"]["version"] == "v2"
 
 
 def test_load_model_registry_is_idempotent():
@@ -72,7 +83,25 @@ def test_load_model_registry_is_idempotent():
     assert MODEL_REGISTRY == first
 
 
-# ─────────────────────── Step 5.2 gates ─────────────────────────────────
+# ─────────────────────── Provider mapping ─────────────────────────────────
+
+def test_claude_uses_anthropic():
+    assert MODEL_REGISTRY["claude"]["provider"] == "anthropic"
+
+
+def test_chatgpt_uses_openai():
+    assert MODEL_REGISTRY["chatgpt"]["provider"] == "openai"
+
+
+def test_gemini_uses_gemini():
+    assert MODEL_REGISTRY["gemini"]["provider"] == "gemini"
+
+
+def test_grok_uses_xai():
+    assert MODEL_REGISTRY["grok"]["provider"] == "xai"
+
+
+# ─────────────────────── Step 5.2 gates ───────────────────────────────────
 
 @pytest.mark.parametrize("model", _MODEL_NAMES)
 def test_fallback_injects_topic(model):
@@ -88,7 +117,21 @@ def test_fallback_unknown_model_raises():
         get_fallback("bogus", "topic")
 
 
-# ─────────────────────── Loader guard coverage ──────────────────────────
+# ─────────────────────── Loader guard coverage ────────────────────────────
+
+def _make_v2_config(model_name, **overrides):
+    """Build a valid v2 config dict for testing loader guards."""
+    cfg = {
+        "version": "v2",
+        "model": model_name,
+        "provider": "anthropic",
+        "provider_model_id": "stub-model",
+        "user_message_template": "Generate about: '{topic}'",
+        "system_prompt": "stub system prompt",
+    }
+    cfg.update(overrides)
+    return cfg
+
 
 def test_loader_rejects_reserved_version(tmp_path, monkeypatch):
     """If someone ever sets version='fallback' in a real config, the
@@ -98,12 +141,7 @@ def test_loader_rejects_reserved_version(tmp_path, monkeypatch):
     bad_dir = tmp_path / "prompts"
     bad_dir.mkdir()
     for m in _MODELS:
-        cfg = {
-            "version": "fallback" if m == "claude" else "v1",
-            "model": m,
-            "anthropic_model_id": "stub",
-            "system_prompt": "stub",
-        }
+        cfg = _make_v2_config(m, version="fallback" if m == "claude" else "v2")
         (bad_dir / f"{m}.json").write_text(json.dumps(cfg))
 
     monkeypatch.setattr(gs, "_PROMPTS_DIR", bad_dir)
@@ -121,12 +159,7 @@ def test_loader_rejects_model_field_mismatch(tmp_path, monkeypatch):
     bad_dir = tmp_path / "prompts"
     bad_dir.mkdir()
     for m in _MODELS:
-        cfg = {
-            "version": "v1",
-            "model": "WRONG" if m == "claude" else m,
-            "anthropic_model_id": "stub",
-            "system_prompt": "stub",
-        }
+        cfg = _make_v2_config(m, model="WRONG" if m == "claude" else m)
         (bad_dir / f"{m}.json").write_text(json.dumps(cfg))
 
     monkeypatch.setattr(gs, "_PROMPTS_DIR", bad_dir)
@@ -137,7 +170,42 @@ def test_loader_rejects_model_field_mismatch(tmp_path, monkeypatch):
     load_model_registry()
 
 
-# ─────────────────────── Startup hook registration ──────────────────────
+def test_loader_rejects_invalid_provider(tmp_path, monkeypatch):
+    from app.services import generate_service as gs
+
+    bad_dir = tmp_path / "prompts"
+    bad_dir.mkdir()
+    for m in _MODELS:
+        cfg = _make_v2_config(m, provider="invalid_provider" if m == "claude" else "anthropic")
+        (bad_dir / f"{m}.json").write_text(json.dumps(cfg))
+
+    monkeypatch.setattr(gs, "_PROMPTS_DIR", bad_dir)
+    with pytest.raises(ValueError, match="not in"):
+        load_model_registry()
+
+    monkeypatch.undo()
+    load_model_registry()
+
+
+def test_loader_rejects_missing_topic_placeholder(tmp_path, monkeypatch):
+    from app.services import generate_service as gs
+
+    bad_dir = tmp_path / "prompts"
+    bad_dir.mkdir()
+    for m in _MODELS:
+        template = "no placeholder here" if m == "claude" else "about '{topic}'"
+        cfg = _make_v2_config(m, user_message_template=template)
+        (bad_dir / f"{m}.json").write_text(json.dumps(cfg))
+
+    monkeypatch.setattr(gs, "_PROMPTS_DIR", bad_dir)
+    with pytest.raises(ValueError, match="topic"):
+        load_model_registry()
+
+    monkeypatch.undo()
+    load_model_registry()
+
+
+# ─────────────────────── Startup hook registration ────────────────────────
 
 def test_startup_hook_registered_on_app():
     """Guards against drift — if the @app.on_event('startup') decorator
@@ -148,9 +216,9 @@ def test_startup_hook_registered_on_app():
     assert "_load_registry_on_startup" in names
 
 
-# ─────────────────────── File-presence sanity ──────────────────────────
+# ─────────────────────── File-presence sanity ─────────────────────────────
 
 def test_all_json_files_exist_on_disk():
     prompts_dir = Path(__file__).resolve().parent.parent / "app" / "prompts"
     for m in _MODEL_NAMES:
-        assert (prompts_dir / f"{m}.json").exists()
+        assert (prompts_dir / f"{m}.json")

@@ -1,16 +1,16 @@
-"""Generate service tests — Phase 6 — Step 6.2.
+"""Generate service tests — Phase 6 — Step 6.2 (Layer 7 v2 — multi-provider).
 
 Gate coverage (from /build-checklist Step 6.2):
-  - Anthropic success → prompt row in DB + app_version + version='v1'
+  - Provider success → prompt row in DB + app_version + version='v2'
   - Celery success → prompt row + version from config (NOT 'fallback')
-  - Fallback (APIStatusError) → prompt row with version='fallback'
+  - Fallback (ProviderAPIError) → prompt row with version='fallback'
   - asyncio.TimeoutError → HTTPException 504, no row
   - Celery TimeoutError → HTTPException 504, no row
   - Celery other exception → HTTPException 500 + Sentry capture
 
 Mocking strategy:
-  - Patch anthropic.AsyncAnthropic ctor to return a mock client whose
-    .messages.create is an AsyncMock with parameterized behavior.
+  - Patch model_clients.get_client to return a mock ModelClient whose
+    .agenerate is an AsyncMock with parameterized behavior.
   - Patch app.tasks.generate_task.generate_prompt_task.delay for the
     Celery fan-out path (test runs in-process — don't invoke eager).
   - Patch app.prompts.fallback.get_fallback for fallback-path isolation
@@ -19,7 +19,6 @@ Mocking strategy:
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
-import anthropic
 import celery.exceptions
 import pytest
 import pytest_asyncio
@@ -30,6 +29,7 @@ from app.models.prompt import Prompt
 from app.models.user import User
 from app.services import generate_service
 from app.services.generate_service import generate_prompt, load_model_registry
+from app.services.model_clients import ProviderAPIError, ProviderRateLimitError
 
 # Ensure registry is loaded once for this module (same pattern as
 # test_generate_task.py).
@@ -54,37 +54,39 @@ async def test_user(db_session):
     return user
 
 
-def _anthropic_text_response(text: str = "optimized prompt output"):
-    """Construct the shape AsyncAnthropic.messages.create returns."""
-    resp = MagicMock()
-    resp.content = [MagicMock(text=text)]
-    return resp
+def _mock_provider_client(return_value="optimized prompt output"):
+    """Create a mock ModelClient with async agenerate."""
+    client = MagicMock()
+    client.agenerate = AsyncMock(return_value=return_value)
+    return client
 
 
-def _api_status_error():
-    """Bypass SDK ctor — APIStatusError needs response+body we don't have."""
-    err = anthropic.APIStatusError.__new__(anthropic.APIStatusError)
-    Exception.__init__(err, "upstream 500")
-    return err
+def _mock_provider_client_rate_limited():
+    """Mock ModelClient whose agenerate raises ProviderRateLimitError."""
+    client = MagicMock()
+    client.agenerate = AsyncMock(
+        side_effect=ProviderRateLimitError("test_provider")
+    )
+    return client
 
 
-def _rate_limit_error():
-    err = anthropic.RateLimitError.__new__(anthropic.RateLimitError)
-    Exception.__init__(err, "rate limited")
-    return err
+def _mock_provider_client_api_error():
+    """Mock ModelClient whose agenerate raises ProviderAPIError."""
+    client = MagicMock()
+    client.agenerate = AsyncMock(
+        side_effect=ProviderAPIError("test_provider", RuntimeError("upstream 500"))
+    )
+    return client
 
 
-# ─────────────────────── Gate 1: Anthropic happy path ───────────────────
+# ─────────────────────── Gate 1: Provider happy path ──────────────────────
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_anthropic_success_writes_row(db_session, test_user):
-    fake_client = MagicMock()
-    fake_client.messages.create = AsyncMock(
-        return_value=_anthropic_text_response("great prompt")
-    )
+async def test_provider_success_writes_row(db_session, test_user):
+    mock_client = _mock_provider_client("great prompt")
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
-        return_value=fake_client,
+        "app.services.generate_service.get_client",
+        return_value=mock_client,
     ):
         result = await generate_prompt(
             model="claude",
@@ -106,26 +108,25 @@ async def test_anthropic_success_writes_row(db_session, test_user):
     assert row.model == "claude"
     assert row.topic == "machine learning"
     assert row.prompt_text == "great prompt"
-    assert row.system_prompt_version == "v1"
+    assert row.system_prompt_version == "v2"
     assert row.app_version == "1.2.3"
     assert row.feedback_vote is None
 
 
-# ─────────────────────── Gate 2: RateLimit → Celery success ─────────────
+# ─────────────────────── Gate 2: RateLimit → Celery success ───────────────
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_rate_limit_dispatches_to_celery_and_succeeds(
     db_session, test_user
 ):
-    fake_client = MagicMock()
-    fake_client.messages.create = AsyncMock(side_effect=_rate_limit_error())
+    mock_client = _mock_provider_client_rate_limited()
 
     fake_task = MagicMock()
     fake_task.get.return_value = "celery-recovered output"
 
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
-        return_value=fake_client,
+        "app.services.generate_service.get_client",
+        return_value=mock_client,
     ), patch(
         "app.tasks.generate_task.generate_prompt_task.delay",
         return_value=fake_task,
@@ -153,22 +154,21 @@ async def test_rate_limit_dispatches_to_celery_and_succeeds(
         )
     ).scalar_one()
     assert row.system_prompt_version != "fallback"
-    assert row.system_prompt_version == "v1"
+    assert row.system_prompt_version == "v2"
 
 
-# ─────────────────────── Gate 3: Celery timeout → 504, no row ───────────
+# ─────────────────────── Gate 3: Celery timeout → 504, no row ─────────────
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_celery_timeout_raises_504_no_row(db_session, test_user):
-    fake_client = MagicMock()
-    fake_client.messages.create = AsyncMock(side_effect=_rate_limit_error())
+    mock_client = _mock_provider_client_rate_limited()
 
     fake_task = MagicMock()
     fake_task.get.side_effect = celery.exceptions.TimeoutError()
 
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
-        return_value=fake_client,
+        "app.services.generate_service.get_client",
+        return_value=mock_client,
     ), patch(
         "app.tasks.generate_task.generate_prompt_task.delay",
         return_value=fake_task,
@@ -196,14 +196,13 @@ async def test_celery_timeout_raises_504_no_row(db_session, test_user):
     assert rows == []
 
 
-# ─────────────────────── Gate 4: Celery other exc → 500 + Sentry ────────
+# ─────────────────────── Gate 4: Celery other exc → 500 + Sentry ──────────
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_celery_other_exception_500_and_sentry(
     db_session, test_user, monkeypatch
 ):
-    fake_client = MagicMock()
-    fake_client.messages.create = AsyncMock(side_effect=_rate_limit_error())
+    mock_client = _mock_provider_client_rate_limited()
 
     fake_task = MagicMock()
     fake_task.get.side_effect = RuntimeError("broker exploded")
@@ -215,8 +214,8 @@ async def test_celery_other_exception_500_and_sentry(
     )
 
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
-        return_value=fake_client,
+        "app.services.generate_service.get_client",
+        return_value=mock_client,
     ), patch(
         "app.tasks.generate_task.generate_prompt_task.delay",
         return_value=fake_task,
@@ -236,22 +235,23 @@ async def test_celery_other_exception_500_and_sentry(
     assert cap.call_count == 1
 
 
-# ─────────────────────── Gate 5: asyncio timeout → 504, no row ──────────
+# ─────────────────────── Gate 5: asyncio timeout → 504, no row ────────────
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_asyncio_timeout_raises_504_no_row(db_session, test_user):
     """wait_for exceeds 30s — return 504, no DB write."""
+    import asyncio
+
     async def _hang(*args, **kwargs):
-        import asyncio
         await asyncio.sleep(60)
 
-    fake_client = MagicMock()
-    fake_client.messages.create = _hang
+    mock_client = MagicMock()
+    mock_client.agenerate = _hang
 
     # Shrink the timeout so the test doesn't actually wait 30s
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
-        return_value=fake_client,
+        "app.services.generate_service.get_client",
+        return_value=mock_client,
     ), patch.object(
         generate_service, "_GENERATE_TIMEOUT_SECONDS", 0.05
     ):
@@ -277,18 +277,17 @@ async def test_asyncio_timeout_raises_504_no_row(db_session, test_user):
     assert rows == []
 
 
-# ─────────────────────── Gate 6: APIStatusError → fallback path ─────────
+# ─────────────────────── Gate 6: ProviderAPIError → fallback path ─────────
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_api_status_error_writes_fallback_version(
+async def test_provider_api_error_writes_fallback_version(
     db_session, test_user
 ):
-    fake_client = MagicMock()
-    fake_client.messages.create = AsyncMock(side_effect=_api_status_error())
+    mock_client = _mock_provider_client_api_error()
 
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
-        return_value=fake_client,
+        "app.services.generate_service.get_client",
+        return_value=mock_client,
     ), patch(
         "app.prompts.fallback.get_fallback",
         return_value="fallback prompt with topic",

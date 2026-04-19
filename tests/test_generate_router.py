@@ -65,7 +65,7 @@ def mock_anthropic_ok():
     fake_client.messages.create = AsyncMock(return_value=resp)
 
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
+        "app.services.model_clients.anthropic.AsyncAnthropic",
         return_value=fake_client,
     ):
         yield fake_client
@@ -99,7 +99,7 @@ async def test_valid_request_returns_200_and_writes_row(
     ).scalar_one()
     assert row.app_version == "1.2.3"
     assert row.user_id == UUID(user_id)
-    assert row.system_prompt_version == "v1"
+    assert row.system_prompt_version == "v2"
 
 
 # ─────────────────────── Gate 2: missing x-app-version → 400 ────────────

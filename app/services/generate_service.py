@@ -3,33 +3,41 @@
 Phase 5 surface (shipped 2026-04-15):
   MODEL_REGISTRY dict + load_model_registry() — loads on server start.
 
-Phase 6 surface:
+Phase 6 surface (Layer 7 v2 — multi-provider):
   generate_prompt() — POST /generate orchestration. Four terminating
   paths all converge on a single Phase 1 INSERT into `prompts`:
-    1. Anthropic async success          → version=config['version']
-    2. RateLimitError → Celery retry    → version=config['version']
-    3. APIStatusError → fallback        → version='fallback'
-    4. asyncio.TimeoutError             → HTTPException 504 (no INSERT)
+    1. Provider async success            → version=config['version']
+    2. ProviderRateLimitError → Celery   → version=config['version']
+    3. ProviderAPIError → fallback       → version='fallback'
+    4. asyncio.TimeoutError              → HTTPException 504 (no INSERT)
 
 Spec:
   /full-stack-engineer L401-425, L1476-1586
   /api L417-426 — config shape + 'fallback' reserved
   /data-flow     — Flow 7, 30s ceiling, task.get(timeout=28)
+  /path-b-multi-provider-architecture.md — Layer 7 v2
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from pathlib import Path
 
-import anthropic
 import celery.exceptions
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.prompt import Prompt
+from app.services.model_clients import (
+    ProviderAPIError,
+    ProviderRateLimitError,
+    get_client,
+)
+
+logger = logging.getLogger(__name__)
 
 try:
     import sentry_sdk
@@ -42,7 +50,9 @@ _MODELS: tuple[str, ...] = ("claude", "chatgpt", "gemini", "grok")
 _REQUIRED_KEYS: tuple[str, ...] = (
     "version",
     "model",
-    "anthropic_model_id",
+    "provider",
+    "provider_model_id",
+    "user_message_template",
     "system_prompt",
 )
 _RESERVED_VERSION = "fallback"
@@ -92,6 +102,21 @@ def load_model_registry() -> dict[str, dict]:
                 f"for the fallback path and cannot appear in a real config"
             )
 
+        # Provider gate — must be a registered provider in model_clients
+        _VALID_PROVIDERS = ("anthropic", "openai", "gemini", "xai")
+        if config["provider"] not in _VALID_PROVIDERS:
+            raise ValueError(
+                f"{path.name}: provider {config['provider']!r} "
+                f"not in {_VALID_PROVIDERS}"
+            )
+
+        # Template gate — user_message_template must contain {topic}
+        if "{topic}" not in config["user_message_template"]:
+            raise ValueError(
+                f"{path.name}: user_message_template must contain "
+                f"'{{topic}}' placeholder"
+            )
+
         MODEL_REGISTRY[model] = config
 
     return MODEL_REGISTRY
@@ -121,45 +146,23 @@ async def generate_prompt(
     """
     config = MODEL_REGISTRY[model]  # validated by schema Literal
 
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    # Build user message from config template (Layer 7 v2)
+    user_message = config["user_message_template"].format(topic=topic)
+    provider_client = get_client(config["provider"])
     prompt_text: str | None = None
 
     try:
-        response = await asyncio.wait_for(
-            client.messages.create(
-                model=config["anthropic_model_id"],
+        prompt_text = await asyncio.wait_for(
+            provider_client.agenerate(
+                system_prompt=config["system_prompt"],
+                user_message=user_message,
+                model_id=config["provider_model_id"],
                 max_tokens=_MAX_TOKENS,
-                system=config["system_prompt"],
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Generate an optimized {model} prompt for: "
-                        f"'{topic}'"
-                    ),
-                }],
             ),
             timeout=_GENERATE_TIMEOUT_SECONDS,
         )
-        # Narrow ContentBlock union to a text-bearing block via duck typing.
-        # Anthropic may return ThinkingBlock / ToolUseBlock when extended
-        # thinking or tools are active — those have no `.text` attribute,
-        # so we'd AttributeError on `.content[0].text`. Duck-typing on
-        # `getattr(..., "text", None)` + `isinstance(_, str)` keeps us
-        # correct in prod (real TextBlock matches; non-text blocks skip)
-        # AND under MagicMock test fixtures that set `.text` to a string.
-        prompt_text = next(
-            (
-                t for t in (getattr(b, "text", None) for b in response.content)
-                if isinstance(t, str)
-            ),
-            None,
-        )
-        if prompt_text is None:
-            raise RuntimeError(
-                "anthropic_response_missing_text_block"
-            )
 
-    except anthropic.RateLimitError:
+    except ProviderRateLimitError:
         # Dispatch to Celery retry worker; API waits on result.
         # Lazy import — breaks circular (generate_task imports MODEL_REGISTRY
         # lazily as well).
@@ -209,9 +212,15 @@ async def generate_prompt(
             },
         )
 
-    except anthropic.APIStatusError:
+    except ProviderAPIError as exc:
         # Degraded path — fallback template. Reserved 'fallback' version
         # written to prompts row for analytics exclusion (spec L818).
+        logger.error(
+            "provider_api_error_fallback model=%s provider=%s error=%r",
+            model,
+            config.get("provider"),
+            str(exc.original) if hasattr(exc, "original") else str(exc),
+        )
         from app.prompts.fallback import get_fallback
 
         prompt_text = get_fallback(model, topic)
