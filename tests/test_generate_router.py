@@ -99,7 +99,7 @@ async def test_valid_request_returns_200_and_writes_row(
     ).scalar_one()
     assert row.app_version == "1.2.3"
     assert row.user_id == UUID(user_id)
-    assert row.system_prompt_version == "v1"
+    assert row.system_prompt_version == "v2"
 
 
 # ─────────────────────── Gate 2: missing x-app-version → 400 ────────────

@@ -56,7 +56,7 @@ async def _generate_prompt(client, token):
     fake = MagicMock()
     fake.messages.create = AsyncMock(return_value=resp)
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
+        "app.services.model_clients.anthropic.AsyncAnthropic",
         return_value=fake,
     ):
         r = await client.post(
