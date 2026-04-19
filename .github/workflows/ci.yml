@@ -40,6 +40,9 @@ jobs:
       # Real secrets live only in Railway dashboards.
       JWT_SECRET: ci-test-secret-not-used-in-prod
       ANTHROPIC_API_KEY: ci-test-key-not-used
+      OPENAI_API_KEY: ci-test-key-not-used
+      GOOGLE_API_KEY: ci-test-key-not-used
+      XAI_API_KEY: ci-test-key-not-used
       RESEND_API_KEY: ci-test-key-mocked-in-conftest
       # Sentry disabled in CI — empty DSN short-circuits init.
       SENTRY_DSN: ""
