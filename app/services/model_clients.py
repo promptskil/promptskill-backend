@@ -23,7 +23,6 @@ from google.genai import errors as genai_errors
 
 from app.config import settings
 
-
 # ─────────────────── Common exception types ───────────────────
 
 
