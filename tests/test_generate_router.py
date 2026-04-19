@@ -65,7 +65,7 @@ def mock_anthropic_ok():
     fake_client.messages.create = AsyncMock(return_value=resp)
 
     with patch(
-        "app.services.generate_service.anthropic.AsyncAnthropic",
+        "app.services.model_clients.anthropic.AsyncAnthropic",
         return_value=fake_client,
     ):
         yield fake_client
