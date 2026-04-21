@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models import PasswordResetToken, Session, User
 from app.tasks.email_task import send_reset_email_task
+from app.tasks.welcome_email_task import send_welcome_email_task
 
 # Resend client configuration
 resend.api_key = settings.RESEND_API_KEY
@@ -95,6 +96,12 @@ async def signup(email: str, password: str, db: AsyncSession) -> tuple[str, UUID
     )
     db.add(session)
     await db.commit()
+
+    # post-commit: user and session are durable before email dispatch.
+    # Broker errors surface as 500 by design — silent failure would
+    # hide system-wide email outages.
+    send_welcome_email_task.delay(email)
+
     return token, user.id
 
 

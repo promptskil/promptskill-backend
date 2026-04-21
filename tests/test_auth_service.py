@@ -160,6 +160,9 @@ async def test_logout_deletes_session(db_session):
 
 async def test_forgot_password_happy_invalidates_prior(db_session, mock_resend):
     await auth_service.signup("forgot@test.com", "password123", db_session)
+    # Reset mock after signup — signup now sends a welcome email.
+    # This test asserts only on forgot_password dispatch behavior.
+    mock_resend.reset_mock()
 
     # First call — creates token A (used_at=None)
     await auth_service.forgot_password("forgot@test.com", db_session)
@@ -177,7 +180,7 @@ async def test_forgot_password_happy_invalidates_prior(db_session, mock_resend):
     assert tokens[0].used_at is not None, "prior token should be invalidated"
     assert tokens[1].used_at is None, "latest token should be active"
 
-    # Resend was invoked twice (once per forgot call)
+    # Resend was invoked twice — once per forgot_password call
     assert mock_resend.call_count == 2
 
 
