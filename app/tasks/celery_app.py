@@ -21,6 +21,7 @@ celery_app = Celery(
         "app.tasks.email_task",
         "app.tasks.purge_task",
         "app.tasks.generate_task",
+        "app.tasks.welcome_email_task",
     ],
 )
 
