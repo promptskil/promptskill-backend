@@ -177,9 +177,9 @@ class SendResetEmailTask(celery_app.Task):
     def run(self, email: str, token: str) -> dict:
         try:
             result = resend.Emails.send({
-                "from": "noreply@airpromptskill.com",
+                "from": "noreply@cosight.com",
                 "to": email,
-                "subject": "Reset your PromptSkill AI password",
+                "subject": "Reset your Vaine password",
                 "html": (
                     f"<a href='promptskill://reset-password"
                     f"?token={token}'>Reset password</a>"

@@ -126,7 +126,7 @@ class SendWelcomeEmailTask(celery_app.Task):
     def run(self, email: str) -> dict:
         try:
             result = resend.Emails.send({
-                "from": "noreply@airpromptskill.com",
+                "from": "noreply@cosight.com",
                 "to": email,
                 "subject": "Welcome to Vaine",
                 "html": (
