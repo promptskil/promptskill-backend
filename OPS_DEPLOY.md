@@ -17,7 +17,7 @@ load-bearing — skipping one leaves a silent failure mode downstream.
 - [ ] Upstash account — for Redis (Celery broker + rate-limit storage).
 - [ ] Railway account — for Postgres + 3 app services.
 - [ ] Sentry account — project created, DSN copied.
-- [ ] Resend account — API key provisioned, `noreply@airpromptskill.com` domain verified.
+- [ ] Resend account — API key provisioned, `noreply@cosight-ai.com` domain verified.
 - [ ] Anthropic API key.
 
 ---

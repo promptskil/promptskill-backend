@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     SENTRY_PROFILES_SAMPLE_RATE: float = 0.1
     DEBUG_SENTRY: bool = False  # gates /debug-sentry — never set True in prod
     REDIS_URL: str = "redis://localhost:6379"
+    APP_BASE_URL: str = ""  # e.g. https://your-app.railway.app — set in Railway env
 
 
 settings = Settings()

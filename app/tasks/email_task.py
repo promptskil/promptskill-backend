@@ -181,8 +181,11 @@ class SendResetEmailTask(celery_app.Task):
                 "to": email,
                 "subject": "Reset your Vaine password",
                 "html": (
-                    f"<a href='promptskill://reset-password"
-                    f"?token={token}'>Reset password</a>"
+                    f"<p>You requested a password reset for your Vaine account.</p>"
+                    f"<p><a href='{settings.APP_BASE_URL}/auth/reset-password"
+                    f"?token={token}'>Reset my password</a></p>"
+                    f"<p>This link expires in 1 hour. "
+                    f"If you did not request this, you can ignore this email.</p>"
                 ),
                 # Resend dedupes on this key — prevents duplicate
                 # emails across acks_late redelivery.

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,3 +77,11 @@ async def reset_password(
 ) -> dict:
     await auth_service.reset_password(body.token, body.password, db)
     return {"success": True}
+
+
+@router.get("/reset-password")
+async def reset_password_redirect(token: str) -> RedirectResponse:
+    """Email link entry point. Redirects to deep link on mobile (app installed).
+    Falls back to a plain HTML message on desktop where promptskill:// cannot open."""
+    deep_link = f"promptskill://reset-password?token={token}"
+    return RedirectResponse(url=deep_link, status_code=302)
