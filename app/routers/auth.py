@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import bearer_scheme
-from app.config import settings
 from app.database import get_db
 from app.schemas import (
     ForgotPasswordRequest,
