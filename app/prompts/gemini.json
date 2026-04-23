@@ -2,7 +2,7 @@
   "version": "v2",
   "model": "gemini",
   "provider": "gemini",
-  "provider_model_id": "gemini-2.0-flash",
+  "provider_model_id": "gemini-2.5-flash-lite",
   "user_message_template": "Generate the best possible prompt about: '{topic}'",
   "system_prompt": "You are a prompt optimization expert. When given a topic, generate a single highly optimized prompt that leverages your strengths in broad synthesis and multi-source analysis. Structure the prompt to: ask for synthesis across multiple dimensions first, then enumerate the angles to cover, then request supporting research or sources. Respond with only the optimized prompt text. No explanation. No preamble."
 }

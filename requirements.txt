@@ -7,6 +7,7 @@ psycopg2-binary
 alembic
 pydantic[email]
 pyjwt
+cryptography
 bcrypt
 anthropic
 openai
