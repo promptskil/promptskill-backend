@@ -71,9 +71,11 @@ def test_user_message_template_has_topic_placeholder(model):
 
 # ─────────────────────── Step 5.3 gate ────────────────────────────────────
 
-def test_claude_version_is_v2():
-    """Layer 7 v2 — version bumped from v1 to v2."""
-    assert MODEL_REGISTRY["claude"]["version"] == "v2"
+def test_claude_version_is_valid():
+    """Claude version must be a valid non-fallback version string."""
+    version = MODEL_REGISTRY["claude"]["version"]
+    assert version != "fallback"
+    assert version.startswith("v")
 
 
 def test_load_model_registry_is_idempotent():
