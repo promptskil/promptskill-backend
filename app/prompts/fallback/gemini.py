@@ -35,6 +35,14 @@ _OUTPUT_MAP: Dict[str, str] = {
     "research": "general",
 }
 
+_VALID_DOMAINS = frozenset({"market", "technical", "finance", "product", "general"})
+
+_VALID_SECTIONS = frozenset({
+    "Concept", "Goal", "Steps", "Example", "Constraints",
+    "Requirements", "Market Problem", "Comparison", "Solution",
+    "Quantified Value", "Conclusion",
+})
+
 # -------------------------
 # ROLE (normalize from intent)
 # -------------------------
@@ -144,6 +152,7 @@ def align_intent(intent):
         intent.get("action") in _VALID_ACTIONS,
         intent.get("goal"),
         intent.get("topic"),
+        intent.get("domain") in _VALID_DOMAINS,
     ])
     return ok, "Intent misaligned"
 
@@ -197,7 +206,13 @@ def align_validation(v):
 # JUDGMENT (Truth filter)
 # -------------------------
 def judge(structure):
-    return {"valid": True}
+    sections = structure.get("sections", [])
+    valid = (
+        len(sections) >= 2
+        and all(s in _VALID_SECTIONS for s in sections)
+        and sections[-1] == "Conclusion"
+    )
+    return {"valid": valid}
 
 def align_judgment(j):
     return j["valid"], "Judgment failed"
@@ -211,6 +226,7 @@ def decide(intent, structure):
         "goal": intent["goal"],
         "topic": intent["topic"],
         "verbs": intent.get("verbs", []),
+        "domain": intent.get("domain", "general"),
     }
 
 def align_decision(d, intent):
@@ -271,7 +287,7 @@ def format_prompt(raw_input, intent, decision):
         for s in sections
     )
 
-    _domain = intent.get("domain", "general")
+    _domain = decision.get("domain", "general")
     _domain_map = {
         "market": (
             "market sizing, competitive analysis, revenue estimation, "
@@ -286,16 +302,17 @@ def format_prompt(raw_input, intent, decision):
         f"Anchor the analysis in the {_domain} domain, "
         f"defined as {_domain_meaning}; "
         f"use only terminology that belongs to this domain, "
-        f"reject cross-domain or abstract phrasing, "
+        f"reject cross-domain mixing and abstract phrasing, "
         f"use exact standard domain terms when they exist; "
         f"do not paraphrase, substitute, or generalize them "
-        f"into vague expressions"
+        f"into vague expressions, and avoid phrases such as "
+        f"'intersection' or 'dimensions'"
         if _domain != "general"
         else (
             "Identify a single primary domain implied by the topic "
             "and use its standard terminology consistently; "
             "do not paraphrase or generalize domain terms "
-            "into abstract phrasing"
+            "into abstract phrasing or vague expressions"
         )
     )
 
@@ -307,10 +324,7 @@ def format_prompt(raw_input, intent, decision):
         f"{section_instructions} "
         f"Use clear assumptions, provide precise outputs, "
         f"and match the requested depth. "
-        f"{_domain_instruction}; "
-        f"avoid mixing domains, avoid vague phrases such as "
-        f"'intersection' or 'dimensions', "
-        f"and express all analysis using precise domain-specific language. "
+        f"{_domain_instruction} "
         f"Write as flowing, connected prose -- no labels, "
         f"no structural markers, no meta-language."
     )
@@ -334,11 +348,16 @@ def act(prompt):
 # -------------------------
 def examine(output, intent):
     lower = output.lower()
+    _domain = intent.get("domain", "general")
+    domain_anchored = (
+        _domain in lower if _domain != "general" else "primary domain" in lower
+    )
     checks = {
         "has_role": lower.startswith("you are"),
         "intent_match": intent["topic"].lower() in lower,
         "has_search_instruction": "search" in lower,
         "clarity": len(output.split()) > 30,
+        "domain_anchored": domain_anchored,
     }
     return {"passed": all(checks.values()), "checks": checks}
 
@@ -360,7 +379,10 @@ def score_confidence(intent, output, examine_result):
     ]
     total = max(1, len(bool_checks))
     hits = sum(bool_checks)
-    score += (hits / total) * 0.2
+    score += (hits / total) * 0.20
+    # domain signal: detected domain adds precision weight
+    if intent.get("domain", "general") != "general":
+        score += 0.05
     return round(score, 2)
 
 # -------------------------
