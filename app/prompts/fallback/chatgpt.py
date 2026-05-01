@@ -7,6 +7,34 @@ from typing import Any, Dict
 
 MAX_RESTARTS = 2
 
+_VALID_ACTIONS = frozenset(
+    {"analyze_market", "compare", "instruction", "explain", "research"}
+)
+
+_PATTERNS: Dict[str, list] = {
+    "analyze_market": [
+        "market", "opportunity", "worth", "size", "revenue",
+        "how big", "potential", "tam", "sam", "valuation", "value",
+    ],
+    "compare": [
+        "compare", "difference", "vs", "better", "which one",
+    ],
+    "instruction": [
+        "how", "build", "create", "step by step", "guide",
+    ],
+    "explain": [
+        "why", "explain", "what is", "understand",
+    ],
+}
+
+_OUTPUT_MAP: Dict[str, str] = {
+    "analyze_market": "quantified_analysis",
+    "compare": "comparison",
+    "instruction": "step_by_step",
+    "explain": "conceptual",
+    "research": "general",
+}
+
 # -------------------------
 # READ (Word)
 # -------------------------
@@ -17,31 +45,79 @@ def align_read(x):
     return x["complete"], "Input incomplete"
 
 # -------------------------
-# INTENT (Heart)
+# INTENT (Heart) — pattern scoring
 # -------------------------
 def interpret_intent(raw: str) -> Dict[str, Any]:
+    raw_lower = raw.lower()
+    scores = {k: 0 for k in _PATTERNS}
+    for action, words in _PATTERNS.items():
+        for w in words:
+            if w in raw_lower:
+                scores[action] += 1
+
+    best = max(scores, key=scores.get)
+    if scores[best] > 0:
+        action = best
+        confidence = scores[best] / max(1, sum(scores.values()))
+    else:
+        action = "research"
+        confidence = 0.0
+
+    if action == "analyze_market":
+        goal = f"analyze and quantify {raw}"
+    elif action == "compare":
+        goal = f"compare {raw}"
+    elif action == "instruction":
+        goal = f"provide step-by-step guidance for {raw}"
+    elif action == "explain":
+        goal = f"explain {raw} clearly"
+    else:
+        goal = f"research and summarize {raw}"
+
     return {
-        "action": "research",
-        "goal": f"understand {raw} clearly",
+        "action": action,
+        "output_type": _OUTPUT_MAP[action],
+        "goal": goal,
         "audience": "general audience",
         "depth": "basic to intermediate",
-        "topic": raw
+        "topic": raw,
+        "confidence": confidence,
     }
 
 def align_intent(intent):
-    ok = all([intent.get("action"), intent.get("goal"), intent.get("topic")])
+    ok = all([
+        intent.get("action") in _VALID_ACTIONS,
+        intent.get("goal"),
+        intent.get("topic"),
+    ])
     return ok, "Intent misaligned"
 
 # -------------------------
-# STRUCTURE (Pattern)
+# STRUCTURE (Pattern) — routes from intent
 # -------------------------
 def select_structure(intent: Dict[str, Any]) -> Dict[str, Any]:
-    if intent["action"] == "research":
-        return {"sections": ["Concept", "Example", "Requirements"]}
-    return {"sections": ["Concept", "Example"]}
+    action = intent["action"]
+    if action == "analyze_market":
+        sections = [
+            "Concept", "Market Problem", "Solution",
+            "Quantified Value", "Conclusion",
+        ]
+    elif action == "compare":
+        sections = ["Concept", "Comparison", "Example", "Conclusion"]
+    elif action == "instruction":
+        sections = ["Goal", "Steps", "Example", "Constraints"]
+    elif action == "explain":
+        sections = ["Concept", "Example", "Requirements"]
+    else:  # research
+        sections = ["Concept", "Example", "Requirements"]
+    return {"sections": sections}
 
 def align_structure(intent, structure):
-    ok = intent["action"] == "research" and "Concept" in structure["sections"]
+    ok = (
+        intent["action"] in _VALID_ACTIONS
+        and len(structure["sections"]) > 0
+        and structure["sections"][0] in ("Concept", "Goal")
+    )
     return ok, "Structure misaligned with intent"
 
 # -------------------------
@@ -49,8 +125,8 @@ def align_structure(intent, structure):
 # -------------------------
 def validate(intent, structure):
     return {
-        "intent_structure": intent["action"] == "research",
-        "has_sections": len(structure["sections"]) > 0
+        "valid_action": intent["action"] in _VALID_ACTIONS,
+        "has_sections": len(structure["sections"]) > 0,
     }
 
 def align_validation(v):
@@ -73,7 +149,7 @@ def decide(intent, structure):
     return {
         "structure": structure,
         "goal": intent["goal"],
-        "topic": intent["topic"]
+        "topic": intent["topic"],
     }
 
 def align_decision(d, intent):
@@ -88,25 +164,33 @@ def diagnose(intent, decision):
     return ok, "Diagnosis mismatch"
 
 # -------------------------
-# FORMAT (Word clarity)
+# FORMAT (Word clarity — sections rendered from decision)
 # -------------------------
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
+    sections = decision["structure"]["sections"]
+    section_lines = "\n".join(
+        f"{s} — cover this section thoroughly" for s in sections
+    )
     return (
         f"User input: {raw_input}\n"
         f"Interpreted intent: {intent['goal']}\n\n"
         f"You are an expert explaining {topic}.\n"
         f"Search for current information before answering.\n\n"
-        f"Respond for a {intent['audience']} audience at a {intent['depth']} level.\n\n"
-        f"Structure your response in three sections:\n"
-        f"Concept — explain what {topic} is clearly\n"
-        f"Example — give one real-world example\n"
-        f"Requirements — include key facts and what matters most\n\n"
+        f"Respond for a {intent['audience']} audience"
+        f" at a {intent['depth']} level.\n\n"
+        f"Structure your response in these sections:\n"
+        f"{section_lines}\n\n"
         f"Be clear and direct."
     )
 
 def align_format(prompt, raw_input, intent):
-    ok = prompt.startswith(f"User input: {raw_input}") and intent["goal"] in prompt
+    expected = select_structure(intent)["sections"]
+    ok = (
+        prompt.startswith(f"User input: {raw_input}")
+        and intent["goal"] in prompt
+        and all(s.lower() in prompt.lower() for s in expected)
+    )
     return ok, "Format misaligned"
 
 # -------------------------
@@ -116,21 +200,51 @@ def act(prompt):
     return {"output": prompt}
 
 # -------------------------
-# EXAMINE (Fruit validation)
+# EXAMINE (Fruit validation — sections verified by intent)
 # -------------------------
 def examine(output, intent):
     lower = output.lower()
+    expected = select_structure(intent)["sections"]
+    section_checks = {
+        f"has_{s.lower().replace(' ', '_')}": s.lower() in lower
+        for s in expected
+    }
     checks = {
         "intent_match": intent["topic"].lower() in lower,
-        "has_structure": all(
-            s in lower for s in ["concept", "example", "requirements"]
-        ),
-        "clear": len(output.split()) > 30
+        "clear": len(output.split()) > 30,
+        **section_checks,
     }
     return {"passed": all(checks.values()), "checks": checks}
 
 def align_examine(x):
     return x["passed"], "Output (fruit) failed"
+
+# -------------------------
+# CONFIDENCE SCORING (Intent × Structure × Output)
+# -------------------------
+def score_confidence(intent, output, examine_result):
+    score = 0.0
+
+    # intent signal strength
+    score += intent.get("confidence", 0.3) * 0.3
+
+    # structure alignment
+    if examine_result["passed"]:
+        score += 0.4
+
+    # output clarity
+    if len(output.split()) > 30:
+        score += 0.1
+
+    # section coverage
+    bool_checks = [
+        v for v in examine_result["checks"].values() if isinstance(v, bool)
+    ]
+    total = max(1, len(bool_checks))
+    hits = sum(bool_checks)
+    score += (hits / total) * 0.2
+
+    return round(score, 2)
 
 # -------------------------
 # ESTABLISH
@@ -210,6 +324,11 @@ def generate_fallback(topic: str) -> str:
         ex = examine(out, intent)
         ok, err = align_examine(ex)
         if not ok:
+            restarts += 1
+            continue
+
+        confidence = score_confidence(intent, out, ex)
+        if confidence < 0.7:
             restarts += 1
             continue
 
