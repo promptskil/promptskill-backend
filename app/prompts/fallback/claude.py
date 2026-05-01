@@ -275,10 +275,11 @@ def format_prompt(raw_input, intent, decision):
         f"<constraints>\n"
         f"Use clear assumptions. Provide precise outputs. "
         f"Match the requested depth. Stay grounded. No buzzwords. "
-        f"Use precise market language: refer to human-written prompts, "
-        f"generic AI-generated prompts, and intent-to-prompt systems; "
-        f"avoid vague terms such as 'dimensions', 'intersection', "
-        f"or 'value attributed to sources'.\n"
+        f"Identify a single primary domain implied by the topic "
+        f"and use its standard terminology consistently; "
+        f"avoid mixing domains, avoid vague phrases such as "
+        f"'intersection' or 'dimensions', "
+        f"and express all analysis using precise domain-specific language.\n"
         f"</constraints>"
     )
 
