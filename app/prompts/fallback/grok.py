@@ -1,11 +1,39 @@
 """
-Vaine Grok fallback — alignment-enforced pipeline
-Baseline: Heart (Intent) → Truth (Alignment) → Fruit (Result)
-If any layer breaks alignment → trace root → restart
+Vaine Grok fallback -- alignment-enforced pipeline
+Baseline: Heart (Intent) -> Truth (Alignment) -> Fruit (Result)
+If any layer breaks alignment -> trace root -> restart
 """
 from typing import Any, Dict
 
 MAX_RESTARTS = 2
+
+_VALID_ACTIONS = frozenset(
+    {"analyze_market", "compare", "instruction", "explain", "research"}
+)
+
+_PATTERNS: Dict[str, list] = {
+    "analyze_market": [
+        "market", "opportunity", "worth", "size", "revenue",
+        "how big", "potential", "tam", "sam", "valuation", "value",
+    ],
+    "compare": [
+        "compare", "difference", "vs", "better", "which one",
+    ],
+    "instruction": [
+        "how", "build", "create", "step by step", "guide",
+    ],
+    "explain": [
+        "why", "explain", "what is", "understand",
+    ],
+}
+
+_OUTPUT_MAP: Dict[str, str] = {
+    "analyze_market": "quantified_analysis",
+    "compare": "comparison",
+    "instruction": "step_by_step",
+    "explain": "conceptual",
+    "research": "general",
+}
 
 # -------------------------
 # READ (Word)
@@ -17,31 +45,79 @@ def align_read(x):
     return x["complete"], "Input incomplete"
 
 # -------------------------
-# INTENT (Heart)
+# INTENT (Heart) -- pattern scoring
 # -------------------------
 def interpret_intent(raw: str) -> Dict[str, Any]:
+    raw_lower = raw.lower()
+    scores = {k: 0 for k in _PATTERNS}
+    for action, words in _PATTERNS.items():
+        for w in words:
+            if w in raw_lower:
+                scores[action] += 1
+
+    best = max(scores, key=scores.get)
+    if scores[best] > 0:
+        action = best
+        confidence = scores[best] / max(1, sum(scores.values()))
+    else:
+        action = "research"
+        confidence = 0.0
+
+    if action == "analyze_market":
+        goal = f"analyze and quantify {raw}"
+    elif action == "compare":
+        goal = f"compare {raw}"
+    elif action == "instruction":
+        goal = f"provide step-by-step guidance for {raw}"
+    elif action == "explain":
+        goal = f"explain {raw} clearly"
+    else:
+        goal = f"research and summarize {raw}"
+
     return {
-        "action": "research",
-        "goal": f"understand {raw} clearly",
+        "action": action,
+        "output_type": _OUTPUT_MAP[action],
+        "goal": goal,
         "audience": "general audience",
         "depth": "basic to intermediate",
-        "topic": raw
+        "topic": raw,
+        "confidence": confidence,
     }
 
 def align_intent(intent):
-    ok = all([intent.get("action"), intent.get("goal"), intent.get("topic")])
+    ok = all([
+        intent.get("action") in _VALID_ACTIONS,
+        intent.get("goal"),
+        intent.get("topic"),
+    ])
     return ok, "Intent misaligned"
 
 # -------------------------
-# STRUCTURE (Pattern)
+# STRUCTURE (Pattern) -- routes from intent
 # -------------------------
 def select_structure(intent: Dict[str, Any]) -> Dict[str, Any]:
-    if intent["action"] == "research":
-        return {"sections": ["role", "search", "concept", "example", "requirements"]}
-    return {"sections": ["role", "concept"]}
+    action = intent["action"]
+    if action == "analyze_market":
+        sections = [
+            "Concept", "Market Problem", "Solution",
+            "Quantified Value", "Conclusion",
+        ]
+    elif action == "compare":
+        sections = ["Concept", "Comparison", "Example", "Conclusion"]
+    elif action == "instruction":
+        sections = ["Goal", "Steps", "Example", "Constraints"]
+    elif action == "explain":
+        sections = ["Concept", "Example", "Requirements"]
+    else:  # research
+        sections = ["Concept", "Example", "Requirements"]
+    return {"sections": sections}
 
 def align_structure(intent, structure):
-    ok = intent["action"] == "research" and "role" in structure["sections"]
+    ok = (
+        intent["action"] in _VALID_ACTIONS
+        and len(structure["sections"]) > 0
+        and structure["sections"][0] in ("Concept", "Goal")
+    )
     return ok, "Structure misaligned with intent"
 
 # -------------------------
@@ -49,8 +125,8 @@ def align_structure(intent, structure):
 # -------------------------
 def validate(intent, structure):
     return {
-        "intent_structure": intent["action"] == "research",
-        "has_sections": len(structure["sections"]) > 0
+        "valid_action": intent["action"] in _VALID_ACTIONS,
+        "has_sections": len(structure["sections"]) > 0,
     }
 
 def align_validation(v):
@@ -73,7 +149,7 @@ def decide(intent, structure):
     return {
         "structure": structure,
         "goal": intent["goal"],
-        "topic": intent["topic"]
+        "topic": intent["topic"],
     }
 
 def align_decision(d, intent):
@@ -88,24 +164,30 @@ def diagnose(intent, decision):
     return ok, "Diagnosis mismatch"
 
 # -------------------------
-# FORMAT (Word clarity — Grok numbered structure)
+# FORMAT (Word clarity -- Grok numbered bold sections)
 # -------------------------
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
+    sections = decision["structure"]["sections"]
+    section_lines = "\n\n".join(
+        f"**{s}** -- cover this section thoroughly" for s in sections
+    )
     return (
         f"You are an expert on {topic}.\n\n"
         f"Search for current information on {topic} before responding.\n\n"
-        f"**Concept** — define {topic} and its core meaning.\n\n"
-        f"**Example** — give one concrete, real-world example "
-        f"directly tied to {topic}.\n\n"
-        f"**Requirements** — cover the specific depth and constraints needed. "
+        f"{section_lines}\n\n"
+        f"**Requirements** -- cover the specific depth and constraints needed. "
         f"Audience: {intent['audience']}. Depth: {intent['depth']}. "
         f"No section may be omitted."
     )
 
 def align_format(prompt, raw_input, intent):
-    required = ["**Concept**", "**Example**", "**Requirements**"]
-    ok = all(s in prompt for s in required) and intent["topic"] in prompt
+    expected = select_structure(intent)["sections"]
+    ok = (
+        prompt.lower().startswith("you are")
+        and intent["topic"] in prompt
+        and all(f"**{s}**".lower() in prompt.lower() for s in expected)
+    )
     return ok, "Format misaligned"
 
 # -------------------------
@@ -115,21 +197,43 @@ def act(prompt):
     return {"output": prompt}
 
 # -------------------------
-# EXAMINE (Fruit validation — balanced)
+# EXAMINE (Fruit validation -- balanced)
 # -------------------------
 def examine(output, intent):
     lower = output.lower()
+    expected = select_structure(intent)["sections"]
+    section_checks = {
+        f"has_{s.lower().replace(' ', '_')}": f"**{s}**".lower() in lower
+        for s in expected
+    }
     checks = {
         "has_role": lower.startswith("you are"),
         "intent_match": intent["topic"].lower() in lower,
-        "has_concept": "**concept**" in lower,
-        "has_example": "**example**" in lower,
-        "has_requirements": "**requirements**" in lower
+        "clarity": len(output.split()) > 30,
+        **section_checks,
     }
     return {"passed": all(checks.values()), "checks": checks}
 
 def align_examine(x):
     return x["passed"], "Output (fruit) failed"
+
+# -------------------------
+# CONFIDENCE SCORING (Intent x Structure x Output)
+# -------------------------
+def score_confidence(intent, output, examine_result):
+    score = 0.0
+    score += intent.get("confidence", 0.3) * 0.3
+    if examine_result["passed"]:
+        score += 0.4
+    if len(output.split()) > 30:
+        score += 0.1
+    bool_checks = [
+        v for v in examine_result["checks"].values() if isinstance(v, bool)
+    ]
+    total = max(1, len(bool_checks))
+    hits = sum(bool_checks)
+    score += (hits / total) * 0.2
+    return round(score, 2)
 
 # -------------------------
 # ESTABLISH
@@ -209,6 +313,11 @@ def generate_fallback(topic: str) -> str:
         ex = examine(out, intent)
         ok, err = align_examine(ex)
         if not ok:
+            restarts += 1
+            continue
+
+        confidence = score_confidence(intent, out, ex)
+        if confidence < 0.7:
             restarts += 1
             continue
 
