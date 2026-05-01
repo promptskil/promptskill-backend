@@ -266,10 +266,11 @@ def format_prompt(raw_input, intent, decision):
         f"and match the requested depth. "
         f"Write for a {intent['audience']} audience "
         f"at a {intent['depth']} level. "
-        f"Use precise market language: refer to human-written prompts, "
-        f"generic AI-generated prompts, and intent-to-prompt systems; "
-        f"avoid vague terms such as 'dimensions', 'intersection', "
-        f"or 'value attributed to sources'."
+        f"Identify a single primary domain implied by the topic "
+        f"and use its standard terminology consistently; "
+        f"avoid mixing domains, avoid vague phrases such as "
+        f"'intersection' or 'dimensions', "
+        f"and express all analysis using precise domain-specific language."
     )
 
 def align_format(prompt, raw_input, intent):
