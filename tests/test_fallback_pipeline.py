@@ -159,3 +159,104 @@ def test_happy_path_returns_non_empty_string(model):
     assert isinstance(result, str)
     assert len(result) > 0
     assert topic in result
+
+
+import importlib
+
+# --- describe_section branch coverage ---
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_describe_section_quantified_value_with_verb(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    result = mod.describe_section("Quantified Value", ["calculate"])
+    assert "calculate" in result
+
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_describe_section_comparison_branch(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    result = mod.describe_section("Comparison", [])
+    assert "compare" in result
+
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_describe_section_market_problem_branch(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    result = mod.describe_section("Market Problem", [])
+    assert "problem" in result
+
+
+# --- verb extraction ---
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_interpret_intent_extracts_calculate_and_estimate(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    intent = mod.interpret_intent("calculate and estimate the market size")
+    assert "calculate" in intent["verbs"]
+    assert "estimate" in intent["verbs"]
+
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_interpret_intent_extracts_measure_and_compare(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    intent = mod.interpret_intent("measure and compare AI models")
+    assert "measure" in intent["verbs"]
+    assert "compare" in intent["verbs"]
+
+
+# --- dimension branch coverage ---
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_select_structure_adds_market_problem_section(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    intent = mod.interpret_intent("the core problem in AI industry")
+    structure = mod.select_structure(intent)
+    assert "Market Problem" in structure["sections"]
+
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_select_structure_adds_comparison_and_solution_sections(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    intent = mod.interpret_intent("compare vs solution to solve the challenge")
+    structure = mod.select_structure(intent)
+    assert "Comparison" in structure["sections"]
+    assert "Solution" in structure["sections"]
+
+
+# --- select_structure action overrides ---
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_select_structure_instruction_override(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    intent = mod.interpret_intent("how to build a startup")
+    structure = mod.select_structure(intent)
+    assert structure["sections"][0] == "Goal"
+    assert "Steps" in structure["sections"]
+
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_select_structure_explain_override(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    intent = mod.interpret_intent("explain why inflation happens")
+    structure = mod.select_structure(intent)
+    assert "Example" in structure["sections"]
+    assert "Requirements" in structure["sections"]
+
+
+# --- trace function coverage ---
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_trace_routes_format_failures(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    assert mod.trace("Output failed") == "format"
+    assert mod.trace("Format misaligned") == "format"
+
+
+@pytest.mark.parametrize("model", _MODELS)
+def test_trace_routes_all_non_format_failures(model):
+    mod = importlib.import_module(f"app.prompts.fallback.{model}")
+    assert mod.trace("Decision misaligned") == "decision"
+    assert mod.trace("Judgment failed") == "judgment"
+    assert mod.trace("Validation failed") == "validation"
+    assert mod.trace("Structure misaligned") == "structure"
+    assert mod.trace("unknown failure") == "intent"
