@@ -41,7 +41,8 @@ _OUTPUT_MAP: Dict[str, str] = {
 def normalize_role(intent, topic):
     action = intent.get("action", "research")
     if action == "analyze_market":
-        return f"Market Analyst specializing in economics and competitive intelligence for {topic}"
+        base = "Market Analyst specializing in economics and competitive intelligence"
+        return f"{base} for {topic}"
     if action == "compare":
         return f"Analyst specializing in comparative evaluation of {topic}"
     if action == "instruction":
@@ -221,7 +222,9 @@ def describe_section(section, verbs):
         if v == "calculate":
             instructions.append("calculate numeric values using stated assumptions")
         elif v == "estimate":
-            instructions.append("estimate values realistically with ranges where applicable")
+            instructions.append(
+                "estimate values realistically with ranges where applicable"
+            )
         elif v == "measure":
             instructions.append("quantify scale and measurable impact")
         elif v == "compare":
@@ -280,7 +283,8 @@ def format_prompt(raw_input, intent, decision):
         f"the field evolves and accuracy matters.\n\n"
         f"Write for a {intent['audience']} at a {intent['depth']} level. "
         f"Structure your response to cover: {section_prose}.{verb_note} "
-        f"Use clear assumptions, provide precise outputs, and match the requested depth. "
+        f"Use clear assumptions, provide precise outputs, "
+        f"and match the requested depth. "
         f"Write as flowing, connected prose -- no labels, "
         f"no structural markers, no meta-language."
     )
