@@ -216,6 +216,7 @@ def diagnose(intent, decision):
 # -------------------------
 def describe_section(section, verbs):
     instructions = []
+
     for v in verbs:
         if v == "calculate":
             instructions.append("calculate numeric values using stated assumptions")
@@ -227,15 +228,20 @@ def describe_section(section, verbs):
             instructions.append("compare directly with differences and trade-offs")
         elif v == "explain":
             instructions.append("explain the underlying mechanism clearly")
+
     if section == "Market Problem":
         instructions.append("define the core problem precisely")
+
     if section == "Quantified Value":
         instructions.append("show measurable economic impact")
+
     if section == "Comparison":
         if "compare directly with differences and trade-offs" not in instructions:
             instructions.append("compare with clear differences and trade-offs")
+
     if not instructions:
         return "cover this section clearly and thoroughly"
+
     return ", ".join(dict.fromkeys(instructions))
 
 
@@ -243,10 +249,12 @@ def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
     role = normalize_role(intent, topic)
     sections = decision["structure"]["sections"]
-    task_lines = "\n".join(
+
+    task_lines = "\n\n".join(
         f"**{s}** -- {describe_section(s, decision.get('verbs', []))}"
         for s in sections
     )
+
     return (
         f"<role>{role}</role>\n\n"
         f"<instructions>\n"
@@ -259,11 +267,12 @@ def format_prompt(raw_input, intent, decision):
         f"who needs a clear understanding of {topic}\n"
         f"</context>\n\n"
         f"<task>\n"
-        f"Respond using these sections:\n"
+        f"Respond using these sections:\n\n"
         f"{task_lines}\n"
         f"</task>\n\n"
         f"<constraints>\n"
-        f"Stay grounded. Avoid speculation. Favor layered reasoning. No buzzwords.\n"
+        f"Use clear assumptions. Provide precise outputs. Match the requested depth. "
+        f"Stay grounded. No buzzwords.\n"
         f"</constraints>"
     )
 

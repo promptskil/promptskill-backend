@@ -216,6 +216,7 @@ def diagnose(intent, decision):
 # -------------------------
 def describe_section(section, verbs):
     instructions = []
+
     for v in verbs:
         if v == "calculate":
             instructions.append("calculate numeric values using stated assumptions")
@@ -227,15 +228,20 @@ def describe_section(section, verbs):
             instructions.append("compare directly with differences and trade-offs")
         elif v == "explain":
             instructions.append("explain the underlying mechanism clearly")
+
     if section == "Market Problem":
         instructions.append("define the core problem precisely")
+
     if section == "Quantified Value":
         instructions.append("show measurable economic impact")
+
     if section == "Comparison":
         if "compare directly with differences and trade-offs" not in instructions:
             instructions.append("compare with clear differences and trade-offs")
+
     if not instructions:
         return "cover this section thoroughly"
+
     return ", ".join(dict.fromkeys(instructions))
 
 
@@ -243,15 +249,17 @@ def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
     role = normalize_role(intent, topic)
     sections = decision["structure"]["sections"]
+
     section_lines = "\n\n".join(
         f"**{s}** -- {describe_section(s, decision.get('verbs', []))}"
         for s in sections
     )
+
     return (
         f"You are a {role}.\n\n"
         f"Search for current information on {topic} before responding.\n\n"
         f"{section_lines}\n\n"
-        f"**Requirements** -- cover the specific depth and constraints needed. "
+        f"**Requirements** -- use clear assumptions, provide precise outputs, and match the requested depth. "
         f"Audience: {intent['audience']}. Depth: {intent['depth']}. "
         f"No section may be omitted."
     )

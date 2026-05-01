@@ -216,6 +216,7 @@ def diagnose(intent, decision):
 # -------------------------
 def describe_section(section, verbs):
     instructions = []
+
     for v in verbs:
         if v == "calculate":
             instructions.append("calculate numeric values using stated assumptions")
@@ -227,15 +228,20 @@ def describe_section(section, verbs):
             instructions.append("compare directly with differences and trade-offs")
         elif v == "explain":
             instructions.append("explain the underlying mechanism clearly")
+
     if section == "Market Problem":
         instructions.append("define the core problem precisely")
+
     if section == "Quantified Value":
         instructions.append("show measurable economic impact")
+
     if section == "Comparison":
         if "compare directly with differences and trade-offs" not in instructions:
             instructions.append("compare with clear differences and trade-offs")
+
     if not instructions:
         return "cover this section clearly and thoroughly"
+
     return ", ".join(dict.fromkeys(instructions))
 
 
@@ -244,11 +250,13 @@ def format_prompt(raw_input, intent, decision):
     role = normalize_role(intent, topic)
     sections = decision["structure"]["sections"]
     verbs = decision.get("verbs", [])
+
     section_prose = ", ".join(s.lower() for s in sections[:-1])
     if len(sections) > 1:
         section_prose += f", and {sections[-1].lower()}"
     else:
         section_prose = sections[0].lower()
+
     verb_parts = []
     for v in verbs:
         if v == "calculate":
@@ -261,15 +269,18 @@ def format_prompt(raw_input, intent, decision):
             verb_parts.append("compare with clear differences and trade-offs")
         elif v == "explain":
             verb_parts.append("explain mechanisms clearly")
+
     verb_note = ""
     if verb_parts:
         verb_note = " Where applicable, " + ", ".join(dict.fromkeys(verb_parts)) + "."
+
     return (
         f"You are a {role}.\n\n"
         f"Search for current information on {topic} before responding -- "
         f"the field evolves and accuracy matters.\n\n"
         f"Write for a {intent['audience']} at a {intent['depth']} level. "
         f"Structure your response to cover: {section_prose}.{verb_note} "
+        f"Use clear assumptions, provide precise outputs, and match the requested depth. "
         f"Write as flowing, connected prose -- no labels, "
         f"no structural markers, no meta-language."
     )
