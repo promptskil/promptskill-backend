@@ -389,7 +389,7 @@ def score_confidence(intent, output, examine_result):
     ]
     total = max(1, len(bool_checks))
     hits = sum(bool_checks)
-    score += (hits / total) * 0.15
+    score += (hits / total) * 0.20
     # domain signal: detected domain adds precision weight
     if intent.get("domain", "general") != "general":
         score += 0.05
