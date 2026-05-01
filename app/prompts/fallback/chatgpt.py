@@ -3,7 +3,7 @@ Vaine ChatGPT fallback — alignment-enforced pipeline
 Baseline: Heart (Intent) → Truth (Alignment) → Fruit (Result)
 If any layer breaks alignment → trace root → restart
 """
-from typing import Dict, Any
+from typing import Any, Dict
 
 MAX_RESTARTS = 2
 
@@ -122,7 +122,9 @@ def examine(output, intent):
     lower = output.lower()
     checks = {
         "intent_match": intent["topic"].lower() in lower,
-        "has_structure": all(s in lower for s in ["concept", "example", "requirements"]),
+        "has_structure": all(
+            s in lower for s in ["concept", "example", "requirements"]
+        ),
         "clear": len(output.split()) > 30
     }
     return {"passed": all(checks.values()), "checks": checks}

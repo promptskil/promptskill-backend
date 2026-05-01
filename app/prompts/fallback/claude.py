@@ -3,7 +3,7 @@ Vaine Claude fallback — alignment-enforced pipeline
 Baseline: Heart (Intent) → Truth (Alignment) → Fruit (Result)
 If any layer breaks alignment → trace root → restart
 """
-from typing import Dict, Any
+from typing import Any, Dict
 
 MAX_RESTARTS = 2
 
@@ -95,11 +95,13 @@ def format_prompt(raw_input, intent, decision):
     return (
         f"<role>You are an expert explaining {topic} clearly and accurately.</role>\n\n"
         f"<instructions>\n"
-        f"- Search for current information on {topic} before responding, as this field changes over time\n"
+        f"- Search for current information on {topic} before responding, "
+        f"as this field changes over time\n"
         f"- If unsure about any fact, say so explicitly rather than guessing\n"
         f"</instructions>\n\n"
         f"<context>\n"
-        f"Audience: {intent['audience']} at a {intent['depth']} level who needs a clear understanding of {topic}\n"
+        f"Audience: {intent['audience']} at a {intent['depth']} level "
+        f"who needs a clear understanding of {topic}\n"
         f"</context>\n\n"
         f"<task>\n"
         f"Respond using these three sections:\n"

@@ -3,7 +3,7 @@ Vaine Gemini fallback — alignment-enforced pipeline
 Baseline: Heart (Intent) → Truth (Alignment) → Fruit (Result)
 If any layer breaks alignment → trace root → restart
 """
-from typing import Dict, Any
+from typing import Any, Dict
 
 MAX_RESTARTS = 2
 
@@ -99,9 +99,12 @@ def format_prompt(raw_input, intent, decision):
         f"the field evolves and accuracy matters.\n\n"
         f"Write for a {intent['audience']} at a {intent['depth']} level. "
         f"Begin by defining what {topic} is and why it matters, "
-        f"then ground the explanation with one concrete real-world example that shows it in action, "
-        f"and close with the key requirements, facts, and constraints a reader needs to understand it fully. "
-        f"Write as flowing, connected prose — no labels, no structural markers, no meta-language."
+        f"then ground the explanation with one concrete real-world "
+        f"example that shows it in action, "
+        f"and close with the key requirements, facts, and constraints "
+        f"a reader needs to understand it fully. "
+        f"Write as flowing, connected prose — no labels, "
+        f"no structural markers, no meta-language."
     )
 
 def align_format(prompt, raw_input, intent):

@@ -3,7 +3,7 @@ Vaine Grok fallback — alignment-enforced pipeline
 Baseline: Heart (Intent) → Truth (Alignment) → Fruit (Result)
 If any layer breaks alignment → trace root → restart
 """
-from typing import Dict, Any
+from typing import Any, Dict
 
 MAX_RESTARTS = 2
 
@@ -96,7 +96,8 @@ def format_prompt(raw_input, intent, decision):
         f"You are an expert on {topic}.\n\n"
         f"Search for current information on {topic} before responding.\n\n"
         f"**Concept** — define {topic} and its core meaning.\n\n"
-        f"**Example** — give one concrete, real-world example directly tied to {topic}.\n\n"
+        f"**Example** — give one concrete, real-world example "
+        f"directly tied to {topic}.\n\n"
         f"**Requirements** — cover the specific depth and constraints needed. "
         f"Audience: {intent['audience']}. Depth: {intent['depth']}. "
         f"No section may be omitted."
