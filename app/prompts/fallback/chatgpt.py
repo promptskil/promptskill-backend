@@ -74,6 +74,31 @@ def interpret_intent(raw: str) -> Dict[str, Any]:
     else:
         goal = f"research and summarize {raw}"
 
+    dimensions = []
+    if any(w in raw_lower for w in ["problem", "issue", "challenge", "fail"]):
+        dimensions.append("problem")
+    if any(w in raw_lower for w in ["compare", "vs", "difference"]):
+        dimensions.append("comparison")
+    if any(w in raw_lower for w in ["solution", "solve", "fit"]):
+        dimensions.append("solution")
+    _quant = ["quantify", "measure", "value", "estimate", "size"]
+    if any(w in raw_lower for w in _quant):
+        dimensions.append("quantification")
+    if not dimensions:
+        dimensions = ["general"]
+
+    verbs = []
+    if "calculate" in raw_lower:
+        verbs.append("calculate")
+    if "estimate" in raw_lower:
+        verbs.append("estimate")
+    if "measure" in raw_lower:
+        verbs.append("measure")
+    if "compare" in raw_lower:
+        verbs.append("compare")
+    if not verbs:
+        verbs = ["explain"]
+
     return {
         "action": action,
         "output_type": _OUTPUT_MAP[action],
@@ -82,6 +107,8 @@ def interpret_intent(raw: str) -> Dict[str, Any]:
         "depth": "basic to intermediate",
         "topic": raw,
         "confidence": confidence,
+        "dimensions": dimensions,
+        "verbs": verbs,
     }
 
 def align_intent(intent):
@@ -96,20 +123,25 @@ def align_intent(intent):
 # STRUCTURE (Pattern) — routes from intent
 # -------------------------
 def select_structure(intent: Dict[str, Any]) -> Dict[str, Any]:
-    action = intent["action"]
-    if action == "analyze_market":
-        sections = [
-            "Concept", "Market Problem", "Solution",
-            "Quantified Value", "Conclusion",
-        ]
-    elif action == "compare":
-        sections = ["Concept", "Comparison", "Example", "Conclusion"]
-    elif action == "instruction":
+    sections = ["Concept"]
+    dims = intent.get("dimensions", [])
+
+    if "problem" in dims:
+        sections.append("Market Problem")
+    if "comparison" in dims:
+        sections.append("Comparison")
+    if "solution" in dims:
+        sections.append("Solution")
+    if "quantification" in dims:
+        sections.append("Quantified Value")
+
+    # action fallback overrides for instruction and explain
+    if intent["action"] == "instruction":
         sections = ["Goal", "Steps", "Example", "Constraints"]
-    elif action == "explain":
+    elif intent["action"] == "explain":
         sections = ["Concept", "Example", "Requirements"]
-    else:  # research
-        sections = ["Concept", "Example", "Requirements"]
+
+    sections.append("Conclusion")
     return {"sections": sections}
 
 def align_structure(intent, structure):
@@ -150,6 +182,7 @@ def decide(intent, structure):
         "structure": structure,
         "goal": intent["goal"],
         "topic": intent["topic"],
+        "verbs": intent.get("verbs", []),
     }
 
 def align_decision(d, intent):
@@ -166,11 +199,26 @@ def diagnose(intent, decision):
 # -------------------------
 # FORMAT (Word clarity — sections rendered from decision)
 # -------------------------
+def describe_section(section, verbs):
+    if section == "Quantified Value":
+        if any(v in verbs for v in ["calculate", "estimate", "measure"]):
+            return (
+                "calculate numeric estimates, quantify impact, "
+                "and show measurable value"
+            )
+    if section == "Comparison":
+        return "compare clearly with differences and trade-offs"
+    if section == "Market Problem":
+        return "identify and explain the core problem clearly"
+    return "cover this section thoroughly"
+
+
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
     sections = decision["structure"]["sections"]
     section_lines = "\n".join(
-        f"{s} — cover this section thoroughly" for s in sections
+        f"{s} — {describe_section(s, decision.get('verbs', []))}"
+        for s in sections
     )
     return (
         f"User input: {raw_input}\n"
