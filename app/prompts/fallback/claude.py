@@ -65,6 +65,17 @@ def align_read(x):
 # -------------------------
 def interpret_intent(raw: str) -> Dict[str, Any]:
     raw_lower = raw.lower()
+
+    domain = "general"
+    if any(w in raw_lower for w in ["market", "revenue", "tam", "sam", "valuation"]):
+        domain = "market"
+    elif any(w in raw_lower for w in ["build", "api", "code", "database", "deploy"]):
+        domain = "technical"
+    elif any(w in raw_lower for w in ["cost", "margin", "finance", "accounting"]):
+        domain = "finance"
+    elif any(w in raw_lower for w in ["user", "ux", "product", "feature", "app"]):
+        domain = "product"
+
     scores = {k: 0 for k in _PATTERNS}
     for action, words in _PATTERNS.items():
         for w in words:
@@ -125,6 +136,7 @@ def interpret_intent(raw: str) -> Dict[str, Any]:
         "confidence": confidence,
         "dimensions": dimensions,
         "verbs": verbs,
+        "domain": domain,
     }
 
 def align_intent(intent):
@@ -258,6 +270,16 @@ def format_prompt(raw_input, intent, decision):
         for s in sections
     )
 
+    _domain = intent.get("domain", "general")
+    _domain_instruction = (
+        f"Use {_domain} domain terminology consistently"
+        if _domain != "general"
+        else (
+            "Identify a single primary domain implied by the topic "
+            "and use its standard terminology consistently"
+        )
+    )
+
     return (
         f"<role>{role}</role>\n\n"
         f"<instructions>\n"
@@ -275,8 +297,7 @@ def format_prompt(raw_input, intent, decision):
         f"<constraints>\n"
         f"Use clear assumptions. Provide precise outputs. "
         f"Match the requested depth. Stay grounded. No buzzwords. "
-        f"Identify a single primary domain implied by the topic "
-        f"and use its standard terminology consistently; "
+        f"{_domain_instruction}; "
         f"avoid mixing domains, avoid vague phrases such as "
         f"'intersection' or 'dimensions', "
         f"and express all analysis using precise domain-specific language.\n"
