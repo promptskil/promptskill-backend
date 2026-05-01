@@ -272,12 +272,30 @@ def format_prompt(raw_input, intent, decision):
     )
 
     _domain = intent.get("domain", "general")
+    _domain_map = {
+        "market": (
+            "market sizing, competitive analysis, revenue estimation, "
+            "and economic valuation"
+        ),
+        "technical": "systems, models, and implementation details",
+        "finance": "financial measurement, cost, revenue, and accounting",
+        "product": "user experience, features, and product behavior",
+    }
+    _domain_meaning = _domain_map.get(_domain, "")
     _domain_instruction = (
-        f"Use {_domain} domain terminology consistently"
+        f"Anchor the analysis in the {_domain} domain, "
+        f"defined as {_domain_meaning}; "
+        f"use only terminology that belongs to this domain, "
+        f"reject cross-domain or abstract phrasing, "
+        f"use exact standard domain terms when they exist; "
+        f"do not paraphrase, substitute, or generalize them "
+        f"into vague expressions"
         if _domain != "general"
         else (
             "Identify a single primary domain implied by the topic "
-            "and use its standard terminology consistently"
+            "and use its standard terminology consistently; "
+            "do not paraphrase or generalize domain terms "
+            "into abstract phrasing"
         )
     )
 
