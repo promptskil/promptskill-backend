@@ -211,6 +211,7 @@ def decide(intent, structure):
         "goal": intent["goal"],
         "topic": intent["topic"],
         "verbs": intent.get("verbs", []),
+        "domain": intent.get("domain", "general"),
     }
 
 def align_decision(d, intent):
@@ -270,7 +271,7 @@ def format_prompt(raw_input, intent, decision):
         for s in sections
     )
 
-    _domain = intent.get("domain", "general")
+    _domain = decision.get("domain", "general")
     _domain_map = {
         "market": (
             "market sizing, competitive analysis, revenue estimation, "
@@ -285,16 +286,17 @@ def format_prompt(raw_input, intent, decision):
         f"Anchor the analysis in the {_domain} domain, "
         f"defined as {_domain_meaning}; "
         f"use only terminology that belongs to this domain, "
-        f"reject cross-domain or abstract phrasing, "
+        f"reject cross-domain mixing and abstract phrasing, "
         f"use exact standard domain terms when they exist; "
         f"do not paraphrase, substitute, or generalize them "
-        f"into vague expressions"
+        f"into vague expressions, and avoid phrases such as "
+        f"'intersection' or 'dimensions'"
         if _domain != "general"
         else (
             "Identify a single primary domain implied by the topic "
             "and use its standard terminology consistently; "
             "do not paraphrase or generalize domain terms "
-            "into abstract phrasing"
+            "into abstract phrasing or vague expressions"
         )
     )
 
@@ -315,10 +317,7 @@ def format_prompt(raw_input, intent, decision):
         f"<constraints>\n"
         f"Use clear assumptions. Provide precise outputs. "
         f"Match the requested depth. Stay grounded. No buzzwords. "
-        f"{_domain_instruction}; "
-        f"avoid mixing domains, avoid vague phrases such as "
-        f"'intersection' or 'dimensions', "
-        f"and express all analysis using precise domain-specific language.\n"
+        f"{_domain_instruction}\n"
         f"</constraints>"
     )
 
