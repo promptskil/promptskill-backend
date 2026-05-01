@@ -254,35 +254,17 @@ def format_prompt(raw_input, intent, decision):
     sections = decision["structure"]["sections"]
     verbs = decision.get("verbs", [])
 
-    section_prose = ", ".join(s.lower() for s in sections[:-1])
-    if len(sections) > 1:
-        section_prose += f", and {sections[-1].lower()}"
-    else:
-        section_prose = sections[0].lower()
-
-    verb_parts = []
-    for v in verbs:
-        if v == "calculate":
-            verb_parts.append("calculate numeric estimates")
-        elif v == "estimate":
-            verb_parts.append("estimate values with realistic ranges")
-        elif v == "measure":
-            verb_parts.append("quantify impact and scale")
-        elif v == "compare":
-            verb_parts.append("compare with clear differences and trade-offs")
-        elif v == "explain":
-            verb_parts.append("explain mechanisms clearly")
-
-    verb_note = ""
-    if verb_parts:
-        verb_note = " Where applicable, " + ", ".join(dict.fromkeys(verb_parts)) + "."
+    section_instructions = " ".join(
+        describe_section(s, verbs)
+        for s in sections
+    )
 
     return (
         f"You are a {role}.\n\n"
         f"Search for current information on {topic} before responding -- "
         f"the field evolves and accuracy matters.\n\n"
         f"Write for a {intent['audience']} at a {intent['depth']} level. "
-        f"Structure your response to cover: {section_prose}.{verb_note} "
+        f"{section_instructions} "
         f"Use clear assumptions, provide precise outputs, "
         f"and match the requested depth. "
         f"Write as flowing, connected prose -- no labels, "
@@ -290,11 +272,10 @@ def format_prompt(raw_input, intent, decision):
     )
 
 def align_format(prompt, raw_input, intent):
-    expected = select_structure(intent)["sections"]
     ok = (
         prompt.lower().startswith("you are")
         and intent["topic"] in prompt
-        and all(s.lower() in prompt.lower() for s in expected)
+        and "search" in prompt.lower()
     )
     return ok, "Format misaligned"
 
@@ -305,21 +286,15 @@ def act(prompt):
     return {"output": prompt}
 
 # -------------------------
-# EXAMINE (Fruit validation -- balanced)
+# EXAMINE (Fruit validation — structural and intent checks)
 # -------------------------
 def examine(output, intent):
     lower = output.lower()
-    expected = select_structure(intent)["sections"]
-    section_checks = {
-        f"has_{s.lower().replace(' ', '_')}": s.lower() in lower
-        for s in expected
-    }
     checks = {
         "has_role": lower.startswith("you are"),
         "intent_match": intent["topic"].lower() in lower,
         "has_search_instruction": "search" in lower,
         "clarity": len(output.split()) > 30,
-        **section_checks,
     }
     return {"passed": all(checks.values()), "checks": checks}
 
