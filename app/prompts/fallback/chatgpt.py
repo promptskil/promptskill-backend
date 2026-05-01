@@ -36,6 +36,22 @@ _OUTPUT_MAP: Dict[str, str] = {
 }
 
 # -------------------------
+# ROLE (normalize from intent)
+# -------------------------
+def normalize_role(intent, topic):
+    action = intent.get("action", "research")
+    if action == "analyze_market":
+        base = "Market Analyst specializing in economics and competitive intelligence"
+        return f"{base} for {topic}"
+    if action == "compare":
+        return f"Analyst specializing in comparative evaluation of {topic}"
+    if action == "instruction":
+        return f"Engineer providing step-by-step guidance on {topic}"
+    if action == "explain":
+        return f"Domain expert explaining {topic} clearly"
+    return f"Research analyst covering {topic}"
+
+# -------------------------
 # READ (Word)
 # -------------------------
 def read_input(topic: str) -> Dict[str, Any]:
@@ -197,46 +213,65 @@ def diagnose(intent, decision):
     return ok, "Diagnosis mismatch"
 
 # -------------------------
-# FORMAT (Word clarity — sections rendered from decision)
+# FORMAT (Word clarity — clean output, no internal trace)
 # -------------------------
 def describe_section(section, verbs):
-    if section == "Quantified Value":
-        if any(v in verbs for v in ["calculate", "estimate", "measure"]):
-            return (
-                "calculate numeric estimates, quantify impact, "
-                "and show measurable value"
+    instructions = []
+
+    for v in verbs:
+        if v == "calculate":
+            instructions.append("calculate numeric values using stated assumptions")
+        elif v == "estimate":
+            instructions.append(
+                "estimate values realistically with ranges where applicable"
             )
-    if section == "Comparison":
-        return "compare clearly with differences and trade-offs"
+        elif v == "measure":
+            instructions.append("quantify scale and measurable impact")
+        elif v == "compare":
+            instructions.append("compare directly with differences and trade-offs")
+        elif v == "explain":
+            instructions.append("explain the underlying mechanism clearly")
+
     if section == "Market Problem":
-        return "identify and explain the core problem clearly"
-    return "cover this section thoroughly"
+        instructions.append("define the core problem precisely")
+
+    if section == "Quantified Value":
+        instructions.append("show measurable economic impact")
+
+    if section == "Comparison":
+        if "compare directly with differences and trade-offs" not in instructions:
+            instructions.append("compare with clear differences and trade-offs")
+
+    if not instructions:
+        return "cover this section clearly and thoroughly"
+
+    return ", ".join(dict.fromkeys(instructions))
 
 
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
+    role = normalize_role(intent, topic)
     sections = decision["structure"]["sections"]
-    section_lines = "\n".join(
+
+    section_lines = "\n\n".join(
         f"{s} — {describe_section(s, decision.get('verbs', []))}"
         for s in sections
     )
+
     return (
-        f"User input: {raw_input}\n"
-        f"Interpreted intent: {intent['goal']}\n\n"
-        f"You are an expert explaining {topic}.\n"
-        f"Search for current information before answering.\n\n"
-        f"Respond for a {intent['audience']} audience"
-        f" at a {intent['depth']} level.\n\n"
-        f"Structure your response in these sections:\n"
+        f"You are a {role}.\n\n"
+        f"Search for current information on {topic} before responding.\n\n"
         f"{section_lines}\n\n"
-        f"Be clear and direct."
+        f"Requirements — use clear assumptions, provide precise outputs, "
+        f"and match the requested depth.\n"
+        f"Audience: {intent['audience']}. Depth: {intent['depth']}."
     )
 
 def align_format(prompt, raw_input, intent):
     expected = select_structure(intent)["sections"]
     ok = (
-        prompt.startswith(f"User input: {raw_input}")
-        and intent["goal"] in prompt
+        prompt.lower().startswith("you are")
+        and intent["topic"] in prompt
         and all(s.lower() in prompt.lower() for s in expected)
     )
     return ok, "Format misaligned"
@@ -258,6 +293,7 @@ def examine(output, intent):
         for s in expected
     }
     checks = {
+        "has_role": lower.startswith("you are"),
         "intent_match": intent["topic"].lower() in lower,
         "clear": len(output.split()) > 30,
         **section_checks,

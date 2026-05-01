@@ -36,6 +36,22 @@ _OUTPUT_MAP: Dict[str, str] = {
 }
 
 # -------------------------
+# ROLE (normalize from intent)
+# -------------------------
+def normalize_role(intent, topic):
+    action = intent.get("action", "research")
+    if action == "analyze_market":
+        base = "Market Analyst specializing in economics and competitive intelligence"
+        return f"{base} for {topic}"
+    if action == "compare":
+        return f"Analyst specializing in comparative evaluation of {topic}"
+    if action == "instruction":
+        return f"Engineer providing step-by-step guidance on {topic}"
+    if action == "explain":
+        return f"Domain expert explaining {topic} clearly"
+    return f"Research analyst covering {topic}"
+
+# -------------------------
 # READ (Word)
 # -------------------------
 def read_input(topic: str) -> Dict[str, Any]:
@@ -200,46 +216,75 @@ def diagnose(intent, decision):
 # FORMAT (Word clarity -- Gemini natural language prose)
 # -------------------------
 def describe_section(section, verbs):
-    if section == "Quantified Value":
-        if any(v in verbs for v in ["calculate", "estimate", "measure"]):
-            return (
-                "calculate numeric estimates, quantify impact, "
-                "and show measurable value"
+    instructions = []
+
+    for v in verbs:
+        if v == "calculate":
+            instructions.append("calculate numeric values using stated assumptions")
+        elif v == "estimate":
+            instructions.append(
+                "estimate values realistically with ranges where applicable"
             )
-    if section == "Comparison":
-        return "compare clearly with differences and trade-offs"
+        elif v == "measure":
+            instructions.append("quantify scale and measurable impact")
+        elif v == "compare":
+            instructions.append("compare directly with differences and trade-offs")
+        elif v == "explain":
+            instructions.append("explain the underlying mechanism clearly")
+
     if section == "Market Problem":
-        return "identify and explain the core problem clearly"
-    return "cover this section thoroughly"
+        instructions.append("define the core problem precisely")
+
+    if section == "Quantified Value":
+        instructions.append("show measurable economic impact")
+
+    if section == "Comparison":
+        if "compare directly with differences and trade-offs" not in instructions:
+            instructions.append("compare with clear differences and trade-offs")
+
+    if not instructions:
+        return "cover this section clearly and thoroughly"
+
+    return ", ".join(dict.fromkeys(instructions))
 
 
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
+    role = normalize_role(intent, topic)
     sections = decision["structure"]["sections"]
     verbs = decision.get("verbs", [])
+
     section_prose = ", ".join(s.lower() for s in sections[:-1])
     if len(sections) > 1:
         section_prose += f", and {sections[-1].lower()}"
     else:
         section_prose = sections[0].lower()
+
+    verb_parts = []
+    for v in verbs:
+        if v == "calculate":
+            verb_parts.append("calculate numeric estimates")
+        elif v == "estimate":
+            verb_parts.append("estimate values with realistic ranges")
+        elif v == "measure":
+            verb_parts.append("quantify impact and scale")
+        elif v == "compare":
+            verb_parts.append("compare with clear differences and trade-offs")
+        elif v == "explain":
+            verb_parts.append("explain mechanisms clearly")
+
     verb_note = ""
-    if any(v in verbs for v in ["calculate", "estimate", "measure"]):
-        verb_note = (
-            " Where applicable, calculate numeric estimates,"
-            " quantify impact, and show measurable value."
-        )
-    elif "compare" in verbs:
-        verb_note = (
-            " Where applicable, compare clearly"
-            " with differences and trade-offs."
-        )
+    if verb_parts:
+        verb_note = " Where applicable, " + ", ".join(dict.fromkeys(verb_parts)) + "."
+
     return (
-        f"You are an expert on {topic} with deep knowledge across its technical, "
-        f"practical, and applied dimensions.\n\n"
+        f"You are a {role}.\n\n"
         f"Search for current information on {topic} before responding -- "
         f"the field evolves and accuracy matters.\n\n"
         f"Write for a {intent['audience']} at a {intent['depth']} level. "
         f"Structure your response to cover: {section_prose}.{verb_note} "
+        f"Use clear assumptions, provide precise outputs, "
+        f"and match the requested depth. "
         f"Write as flowing, connected prose -- no labels, "
         f"no structural markers, no meta-language."
     )
