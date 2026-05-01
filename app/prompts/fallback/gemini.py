@@ -87,6 +87,18 @@ def interpret_intent(raw: str) -> Dict[str, Any]:
     if not dimensions:
         dimensions = ["general"]
 
+    verbs = []
+    if "calculate" in raw_lower:
+        verbs.append("calculate")
+    if "estimate" in raw_lower:
+        verbs.append("estimate")
+    if "measure" in raw_lower:
+        verbs.append("measure")
+    if "compare" in raw_lower:
+        verbs.append("compare")
+    if not verbs:
+        verbs = ["explain"]
+
     return {
         "action": action,
         "output_type": _OUTPUT_MAP[action],
@@ -96,6 +108,7 @@ def interpret_intent(raw: str) -> Dict[str, Any]:
         "topic": raw,
         "confidence": confidence,
         "dimensions": dimensions,
+        "verbs": verbs,
     }
 
 def align_intent(intent):
@@ -169,6 +182,7 @@ def decide(intent, structure):
         "structure": structure,
         "goal": intent["goal"],
         "topic": intent["topic"],
+        "verbs": intent.get("verbs", []),
     }
 
 def align_decision(d, intent):
@@ -185,21 +199,47 @@ def diagnose(intent, decision):
 # -------------------------
 # FORMAT (Word clarity -- Gemini natural language prose)
 # -------------------------
+def describe_section(section, verbs):
+    if section == "Quantified Value":
+        if any(v in verbs for v in ["calculate", "estimate", "measure"]):
+            return (
+                "calculate numeric estimates, quantify impact, "
+                "and show measurable value"
+            )
+    if section == "Comparison":
+        return "compare clearly with differences and trade-offs"
+    if section == "Market Problem":
+        return "identify and explain the core problem clearly"
+    return "cover this section thoroughly"
+
+
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
     sections = decision["structure"]["sections"]
+    verbs = decision.get("verbs", [])
     section_prose = ", ".join(s.lower() for s in sections[:-1])
     if len(sections) > 1:
         section_prose += f", and {sections[-1].lower()}"
     else:
         section_prose = sections[0].lower()
+    verb_note = ""
+    if any(v in verbs for v in ["calculate", "estimate", "measure"]):
+        verb_note = (
+            " Where applicable, calculate numeric estimates,"
+            " quantify impact, and show measurable value."
+        )
+    elif "compare" in verbs:
+        verb_note = (
+            " Where applicable, compare clearly"
+            " with differences and trade-offs."
+        )
     return (
         f"You are an expert on {topic} with deep knowledge across its technical, "
         f"practical, and applied dimensions.\n\n"
         f"Search for current information on {topic} before responding -- "
         f"the field evolves and accuracy matters.\n\n"
         f"Write for a {intent['audience']} at a {intent['depth']} level. "
-        f"Structure your response to cover: {section_prose}. "
+        f"Structure your response to cover: {section_prose}.{verb_note} "
         f"Write as flowing, connected prose -- no labels, "
         f"no structural markers, no meta-language."
     )

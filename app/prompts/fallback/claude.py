@@ -87,6 +87,18 @@ def interpret_intent(raw: str) -> Dict[str, Any]:
     if not dimensions:
         dimensions = ["general"]
 
+    verbs = []
+    if "calculate" in raw_lower:
+        verbs.append("calculate")
+    if "estimate" in raw_lower:
+        verbs.append("estimate")
+    if "measure" in raw_lower:
+        verbs.append("measure")
+    if "compare" in raw_lower:
+        verbs.append("compare")
+    if not verbs:
+        verbs = ["explain"]
+
     return {
         "action": action,
         "output_type": _OUTPUT_MAP[action],
@@ -96,6 +108,7 @@ def interpret_intent(raw: str) -> Dict[str, Any]:
         "topic": raw,
         "confidence": confidence,
         "dimensions": dimensions,
+        "verbs": verbs,
     }
 
 def align_intent(intent):
@@ -169,6 +182,7 @@ def decide(intent, structure):
         "structure": structure,
         "goal": intent["goal"],
         "topic": intent["topic"],
+        "verbs": intent.get("verbs", []),
     }
 
 def align_decision(d, intent):
@@ -185,11 +199,26 @@ def diagnose(intent, decision):
 # -------------------------
 # FORMAT (Word clarity -- Claude XML 4-block, sections inside <task>)
 # -------------------------
+def describe_section(section, verbs):
+    if section == "Quantified Value":
+        if any(v in verbs for v in ["calculate", "estimate", "measure"]):
+            return (
+                "calculate numeric estimates, quantify impact, "
+                "and show measurable value"
+            )
+    if section == "Comparison":
+        return "compare clearly with differences and trade-offs"
+    if section == "Market Problem":
+        return "identify and explain the core problem clearly"
+    return "cover this section thoroughly"
+
+
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
     sections = decision["structure"]["sections"]
     task_lines = "\n".join(
-        f"**{s}** -- cover this section thoroughly" for s in sections
+        f"**{s}** -- {describe_section(s, decision.get('verbs', []))}"
+        for s in sections
     )
     return (
         f"<role>You are an expert explaining {topic} clearly and accurately.</role>\n\n"
