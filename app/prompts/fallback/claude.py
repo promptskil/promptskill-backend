@@ -274,7 +274,11 @@ def format_prompt(raw_input, intent, decision):
         f"</task>\n\n"
         f"<constraints>\n"
         f"Use clear assumptions. Provide precise outputs. "
-        f"Match the requested depth. Stay grounded. No buzzwords.\n"
+        f"Match the requested depth. Stay grounded. No buzzwords. "
+        f"Use precise market language: refer to human-written prompts, "
+        f"generic AI-generated prompts, and intent-to-prompt systems; "
+        f"avoid vague terms such as 'dimensions', 'intersection', "
+        f"or 'value attributed to sources'.\n"
         f"</constraints>"
     )
 

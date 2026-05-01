@@ -267,6 +267,10 @@ def format_prompt(raw_input, intent, decision):
         f"{section_instructions} "
         f"Use clear assumptions, provide precise outputs, "
         f"and match the requested depth. "
+        f"Use precise market language: refer to human-written prompts, "
+        f"generic AI-generated prompts, and intent-to-prompt systems; "
+        f"avoid vague terms such as 'dimensions', 'intersection', "
+        f"or 'value attributed to sources'. "
         f"Write as flowing, connected prose -- no labels, "
         f"no structural markers, no meta-language."
     )
