@@ -36,6 +36,21 @@ _OUTPUT_MAP: Dict[str, str] = {
 }
 
 # -------------------------
+# ROLE (normalize from intent)
+# -------------------------
+def normalize_role(intent, topic):
+    action = intent.get("action", "research")
+    if action == "analyze_market":
+        return f"Market Analyst specializing in economics and competitive intelligence for {topic}"
+    if action == "compare":
+        return f"Analyst specializing in comparative evaluation of {topic}"
+    if action == "instruction":
+        return f"Engineer providing step-by-step guidance on {topic}"
+    if action == "explain":
+        return f"Domain expert explaining {topic} clearly"
+    return f"Research analyst covering {topic}"
+
+# -------------------------
 # READ (Word)
 # -------------------------
 def read_input(topic: str) -> Dict[str, Any]:
@@ -200,21 +215,33 @@ def diagnose(intent, decision):
 # FORMAT (Word clarity — sections rendered from decision)
 # -------------------------
 def describe_section(section, verbs):
-    if section == "Quantified Value":
-        if any(v in verbs for v in ["calculate", "estimate", "measure"]):
-            return (
-                "calculate numeric estimates, quantify impact, "
-                "and show measurable value"
-            )
-    if section == "Comparison":
-        return "compare clearly with differences and trade-offs"
+    instructions = []
+    for v in verbs:
+        if v == "calculate":
+            instructions.append("calculate numeric values using stated assumptions")
+        elif v == "estimate":
+            instructions.append("estimate values realistically with ranges where applicable")
+        elif v == "measure":
+            instructions.append("quantify scale and measurable impact")
+        elif v == "compare":
+            instructions.append("compare directly with differences and trade-offs")
+        elif v == "explain":
+            instructions.append("explain the underlying mechanism clearly")
     if section == "Market Problem":
-        return "identify and explain the core problem clearly"
-    return "cover this section thoroughly"
+        instructions.append("define the core problem precisely")
+    if section == "Quantified Value":
+        instructions.append("show measurable economic impact")
+    if section == "Comparison":
+        if "compare directly with differences and trade-offs" not in instructions:
+            instructions.append("compare with clear differences and trade-offs")
+    if not instructions:
+        return "cover this section clearly and thoroughly"
+    return ", ".join(dict.fromkeys(instructions))
 
 
 def format_prompt(raw_input, intent, decision):
     topic = intent["topic"]
+    role = normalize_role(intent, topic)
     sections = decision["structure"]["sections"]
     section_lines = "\n".join(
         f"{s} — {describe_section(s, decision.get('verbs', []))}"
@@ -223,7 +250,7 @@ def format_prompt(raw_input, intent, decision):
     return (
         f"User input: {raw_input}\n"
         f"Interpreted intent: {intent['goal']}\n\n"
-        f"You are an expert explaining {topic}.\n"
+        f"You are a {role}.\n"
         f"Search for current information before answering.\n\n"
         f"Respond for a {intent['audience']} audience"
         f" at a {intent['depth']} level.\n\n"
