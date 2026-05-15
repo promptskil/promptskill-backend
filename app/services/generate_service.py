@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 
@@ -38,6 +39,12 @@ from app.services.model_clients import (
 )
 
 logger = logging.getLogger(__name__)
+
+_STRIP_RE = re.compile(r'</?[a-z_]+>|\n{3,}')
+
+
+def _strip_xml_tags(text: str) -> str:
+    return _STRIP_RE.sub(lambda m: '' if m.group()[0] == '<' else '\n\n', text).strip()
 
 try:
     import sentry_sdk
@@ -236,6 +243,9 @@ async def generate_prompt(
             status_code=500,
             detail={"error": "server_error", "message": "Empty response."},
         )
+
+    # Strip XML tags from all paths — provider success, Celery, fallback.
+    prompt_text = _strip_xml_tags(prompt_text)
 
     prompt = Prompt(
         user_id=user_id,
