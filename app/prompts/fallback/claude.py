@@ -3,7 +3,13 @@ Vaine Claude fallback -- alignment-enforced pipeline
 Baseline: Heart (Intent) -> Truth (Alignment) -> Fruit (Result)
 If any layer breaks alignment -> trace root -> restart
 """
+import re
 from typing import Any, Dict
+
+_STRIP_RE = re.compile(r'</?[a-z_]+>|\n{3,}')
+
+def strip_xml_tags(text: str) -> str:
+    return _STRIP_RE.sub(lambda m: '' if m.group()[0] == '<' else '\n\n', text).strip()
 
 MAX_RESTARTS = 2
 
@@ -476,6 +482,6 @@ def generate_fallback(topic: str) -> str:
             continue
 
         establish(out, intent)
-        return out
+        return strip_xml_tags(out)
 
     return "ERROR: Alignment failed after retries."
