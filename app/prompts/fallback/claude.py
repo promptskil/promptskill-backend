@@ -3,7 +3,13 @@ Vaine Claude fallback -- alignment-enforced pipeline
 Baseline: Heart (Intent) -> Truth (Alignment) -> Fruit (Result)
 If any layer breaks alignment -> trace root -> restart
 """
+import re
 from typing import Any, Dict
+
+_STRIP_RE = re.compile(r'</?[a-z_]+>|\n{3,}')
+
+def strip_xml_tags(text: str) -> str:
+    return _STRIP_RE.sub(lambda m: '' if m.group()[0] == '<' else '\n\n', text).strip()
 
 MAX_RESTARTS = 2
 
@@ -318,27 +324,21 @@ def format_prompt(raw_input, intent, decision):
     return (
         f"<role>{role}</role>\n\n"
         f"<instructions>\n"
-        f"- Search for current information on {topic} before responding, "
-        f"as this field changes over time\n"
-        f"- If unsure about any fact, say so explicitly rather than guessing\n"
+        f"- Search for current information on {topic} before responding\n"
         f"</instructions>\n\n"
-        f"<context>\n"
-        f"Write for a {intent['audience']} at a {intent['depth']} level "
-        f"who needs a clear understanding of {topic}\n"
-        f"</context>\n\n"
         f"<task>\n"
         f"{task_instructions}\n"
         f"</task>\n\n"
         f"<constraints>\n"
-        f"Use clear assumptions. Provide precise outputs. "
-        f"Match the requested depth. Stay grounded. No buzzwords. "
+        f"Be concise. Use clear assumptions. Provide precise outputs. "
+        f"Match the requested depth. "
         f"{_domain_instruction}\n"
         f"</constraints>"
     )
 
 def align_format(prompt, raw_input, intent):
     required_tags = [
-        "<role>", "<instructions>", "<context>", "<task>", "<constraints>"
+        "<role>", "<instructions>", "<task>", "<constraints>"
     ]
     ok = (
         all(tag in prompt for tag in required_tags)
@@ -482,6 +482,6 @@ def generate_fallback(topic: str) -> str:
             continue
 
         establish(out, intent)
-        return out
+        return strip_xml_tags(out)
 
     return "ERROR: Alignment failed after retries."
