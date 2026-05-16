@@ -1,5 +1,5 @@
 {
-  "version": "v26",
+  "version": "v27",
   "model": "claude",
   "provider": "anthropic",
   "provider_model_id": "claude-sonnet-4-6",
