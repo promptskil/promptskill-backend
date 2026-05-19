@@ -10,11 +10,9 @@ Same reliability pattern as SendResetEmailTask:
 Sender: noreply@vaineai.com (vaineai.com verified in Resend)
 Subject: "You've been invited to join {org_name} on Vaine"
 """
-import json
 import logging
 import sys
 
-import redis
 import resend
 
 from app.config import settings
