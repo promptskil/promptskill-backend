@@ -42,6 +42,7 @@ from app.models.business_invite import BusinessInvite
 from app.models.business_member import BusinessMember
 from app.models.prompt import Prompt
 from app.models.user import User
+from app.tasks.business_invite_email_task import send_business_invite_email_task
 
 INVITE_LIFETIME_HOURS = 72
 _MAX_HISTORY_LIMIT = 50
@@ -269,6 +270,13 @@ async def invite_member(
     db.add(invite)
     await db.commit()
     await db.refresh(invite)
+
+    send_business_invite_email_task.delay(
+        email=normalized_email,
+        org_name=business.name,
+        token=token,
+        role=role,
+    )
 
     return {
         "id": invite.id,
