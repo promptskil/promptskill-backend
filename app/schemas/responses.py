@@ -68,6 +68,15 @@ class BusinessMemberResponse(BaseModel):
     joined_at: datetime
 
 
+class BusinessMineResponse(BaseModel):
+    id: UUID
+    name: str
+    owner_id: UUID
+    seat_limit: int
+    members: list[BusinessMemberResponse]
+    created_at: datetime
+
+
 class BusinessInviteResponse(BaseModel):
     id: UUID
     email: str

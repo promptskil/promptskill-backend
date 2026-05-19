@@ -1,7 +1,8 @@
 """Business router — Phase 4, Step 6.
 
-Four endpoints, all auth-required, 10/hour rate limit:
+Five endpoints, all auth-required, 10/hour rate limit:
 
+  GET    /business/mine — caller's business + members (any member)
   POST   /business/create — create org
   POST   /business/{business_id}/invite — invite member (admin only)
   DELETE /business/{business_id}/members/{target_user_id} — remove member (admin only)
@@ -18,6 +19,7 @@ from app.rate_limit import limiter
 from app.schemas import (
     BusinessHistoryResponse,
     BusinessInviteResponse,
+    BusinessMineResponse,
     BusinessResponse,
     CreateBusinessRequest,
     InviteBusinessMemberRequest,
@@ -26,6 +28,20 @@ from app.schemas import (
 from app.services import business_service
 
 router = APIRouter()
+
+
+@router.get("/mine", response_model=BusinessMineResponse)
+@limiter.limit("10/hour")
+async def my_business(
+    request: Request,
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BusinessMineResponse:
+    result = await business_service.get_my_business(
+        user_id=user_id,
+        db=db,
+    )
+    return BusinessMineResponse(**result)
 
 
 @router.post("/create", response_model=BusinessResponse)
