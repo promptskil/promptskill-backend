@@ -47,10 +47,18 @@ if settings.SENTRY_DSN and settings.SENTRY_DSN.startswith("https://"):
 
 app = FastAPI(title="PromptSkill API", version="0.1.0")
 
-# CORS — dev-open, lock down at Phase 16
+# CORS — locked down Phase 16
+_ALLOWED_ORIGINS = [
+    "chrome-extension://kgjcnldjmhbploedmijadigchnociecg",  # Vaine extension
+    "https://www.vaineai.com",                               # Web app (www)
+    "https://vaineai.com",                                   # Web app (apex)
+    "http://localhost:5173",                                 # Local dev — Vite
+    "http://localhost:3000",                                 # Local dev — alt
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
