@@ -8,6 +8,7 @@ from app.config import settings
 from app.exceptions import validation_exception_handler
 from app.rate_limit import limiter
 from app.routers import auth as auth_router
+from app.routers import business as business_router
 from app.routers import generate as generate_router
 from app.routers import history as history_router
 from app.routers import user as user_router
@@ -83,6 +84,13 @@ app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 app.include_router(generate_router.router, tags=["generate"])
 app.include_router(history_router.router, tags=["history"])
 app.include_router(user_router.router, tags=["user"])
+
+# Business / organization layer
+app.include_router(
+    business_router.router,
+    prefix="/business",
+    tags=["business"],
+)
 
 
 @app.get("/health")

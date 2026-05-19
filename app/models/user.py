@@ -32,3 +32,12 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    business = relationship(
+        "Business", back_populates="owner", uselist=False, passive_deletes=True
+    )
+    business_memberships = relationship(
+        "BusinessMember", back_populates="user", cascade="all, delete-orphan"
+    )
+    business_invites_sent = relationship(
+        "BusinessInvite", back_populates="invited_by", passive_deletes=True
+    )
