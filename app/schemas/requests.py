@@ -39,3 +39,14 @@ class FeedbackRequest(BaseModel):
 
 class UpdateEmailRequest(BaseModel):
     email: EmailStr
+
+
+# ─────────────────────── Business layer ──────────────────────────────────
+
+class CreateBusinessRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class InviteBusinessMemberRequest(BaseModel):
+    email: EmailStr
+    role: Literal["employee", "admin"] = "employee"
