@@ -34,10 +34,7 @@ router = APIRouter()
 @limiter.limit("10/hour")
 async def my_business(
     request: Request,
-<<<<<<< HEAD
     response: Response,  # REQUIRED by slowapi when headers_enabled=True
-=======
->>>>>>> origin/dev
     user_id: UUID = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BusinessMineResponse:
