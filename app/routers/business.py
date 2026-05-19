@@ -2,10 +2,10 @@
 
 Four endpoints, all auth-required, 10/hour rate limit:
 
-  POST   /business/create                                    — create org
-  POST   /business/{business_id}/invite                      — invite member (admin only)
-  DELETE /business/{business_id}/members/{target_user_id}    — remove member (admin only)
-  GET    /business/{business_id}/history                     — org prompt history (admin only)
+  POST   /business/create — create org
+  POST   /business/{business_id}/invite — invite member (admin only)
+  DELETE /business/{business_id}/members/{target_user_id} — remove member (admin only)
+  GET    /business/{business_id}/history — org prompt history (admin only)
 """
 from uuid import UUID
 
