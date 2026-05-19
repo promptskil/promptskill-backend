@@ -1,6 +1,6 @@
 """Business service — Phase 3, Step 5.
 
-Five async operations:
+Six async operations:
 
   create_business(user_id, name, db)
     — create org + add owner as admin member. 409 if user already owns one.
@@ -20,6 +20,10 @@ Five async operations:
       visible in business history. Membership deletion = full exit.
       Soft-delete on business_members is the Phase N fix if audit
       retention is required.
+
+  get_my_business(user_id, db)
+    — any authenticated member. Returns caller's business + full member
+      list. Dashboard bootstrap endpoint. 404 if no membership exists.
 
   _require_admin(business_id, user_id, db)
     — internal. 404 on missing business, 403 on non-admin caller.
@@ -425,4 +429,57 @@ async def get_business_history(
         "total": total,
         "limit": limit,
         "offset": offset,
+    }
+
+
+# ─────────────────────── get_my_business ─────────────────────────────────
+
+async def get_my_business(user_id: UUID, db: AsyncSession) -> dict:
+    """Return the caller's business and full member list.
+
+    Finds the business via the caller's membership row — works for
+    owners and invited members alike. 404 if no membership exists.
+    """
+    business = (
+        await db.execute(
+            select(Business)
+            .join(BusinessMember, Business.id == BusinessMember.business_id)
+            .where(BusinessMember.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+
+    if business is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "not_found",
+                "message": "No business found for this user",
+            },
+        )
+
+    member_rows = (
+        await db.execute(
+            select(BusinessMember, User.email)
+            .join(User, BusinessMember.user_id == User.id)
+            .where(BusinessMember.business_id == business.id)
+        )
+    ).all()
+
+    members = [
+        {
+            "user_id": m.user_id,
+            "email": email,
+            "role": m.role,
+            "joined_at": m.joined_at,
+        }
+        for m, email in member_rows
+    ]
+
+    return {
+        "id": business.id,
+        "name": business.name,
+        "owner_id": business.owner_id,
+        "seat_limit": business.seat_limit,
+        "members": members,
+        "created_at": business.created_at,
     }
