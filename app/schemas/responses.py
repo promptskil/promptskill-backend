@@ -107,3 +107,8 @@ class BusinessHistoryResponse(BaseModel):
 class RemoveMemberResponse(BaseModel):
     user_id: UUID
     removed: bool
+
+
+class AcceptInviteResponse(BaseModel):
+    business_id: UUID
+    role: str

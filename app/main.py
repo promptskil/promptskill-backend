@@ -11,6 +11,7 @@ from app.routers import auth as auth_router
 from app.routers import business as business_router
 from app.routers import generate as generate_router
 from app.routers import history as history_router
+from app.routers import invite as invite_router
 from app.routers import user as user_router
 from app.services.generate_service import load_model_registry
 
@@ -92,6 +93,9 @@ app.include_router(
     prefix="/business",
     tags=["business"],
 )
+
+# Invite acceptance (top-level, no prefix — matches email URL path)
+app.include_router(invite_router.router, tags=["invite"])
 
 
 @app.get("/health")
