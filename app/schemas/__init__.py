@@ -1,4 +1,5 @@
 from app.schemas.requests import (
+    AcceptInviteRequest,
     CreateBusinessRequest,
     FeedbackRequest,
     ForgotPasswordRequest,
@@ -11,6 +12,7 @@ from app.schemas.requests import (
     ValidateRequest,
 )
 from app.schemas.responses import (
+    AcceptInviteResponse,
     BusinessHistoryResponse,
     BusinessInviteResponse,
     BusinessMemberResponse,
@@ -37,6 +39,7 @@ __all__ = [
     "UpdateEmailRequest",
     "CreateBusinessRequest",
     "InviteBusinessMemberRequest",
+    "AcceptInviteRequest",
     "TokenResponse",
     "GenerateResponse",
     "FeedbackResponse",
@@ -50,4 +53,5 @@ __all__ = [
     "BusinessInviteResponse",
     "BusinessHistoryResponse",
     "RemoveMemberResponse",
+    "AcceptInviteResponse",
 ]
