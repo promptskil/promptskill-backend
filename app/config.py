@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     DEBUG_SENTRY: bool = False  # gates /debug-sentry — never set True in prod
     REDIS_URL: str = "redis://localhost:6379"
     APP_BASE_URL: str = ""  # e.g. https://your-app.railway.app — set in Railway env
+    WEB_BASE_URL: str = "https://www.vaineai.com"  # frontend domain for email links
     APPLE_SHARED_SECRET: str = ""  # App-specific shared secret from App Store Connect
 
 
