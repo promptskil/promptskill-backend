@@ -41,7 +41,7 @@ class SendBusinessInviteEmailTask(celery_app.Task):
 
     def run(self, email: str, org_name: str, token: str, role: str) -> dict:
         accept_url = (
-            f"{settings.APP_BASE_URL}/invite/accept?token={token}"
+            f"{settings.WEB_BASE_URL}/invite/accept?token={token}"
         )
         result = resend.Emails.send({
             "from": "noreply@vaineai.com",
