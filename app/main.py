@@ -53,6 +53,7 @@ _ALLOWED_ORIGINS = [
     "chrome-extension://kgjcnldjmhbploedmijadigchnociecg",  # Vaine extension
     "https://www.vaineai.com",                               # Web app (www)
     "https://vaineai.com",                                   # Web app (apex)
+    "https://business.vaineai.com",                          # Business subdomain
     "http://localhost:5173",                                 # Local dev — Vite
     "http://localhost:3000",                                 # Local dev — alt
 ]
