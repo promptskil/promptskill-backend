@@ -491,3 +491,122 @@ async def get_my_business(user_id: UUID, db: AsyncSession) -> dict:
         "members": members,
         "created_at": business.created_at,
     }
+
+
+# ─────────────────────── accept_invite ───────────────────────────────────
+
+async def accept_invite(
+    token: str,
+    user_id: UUID,
+    db: AsyncSession,
+) -> dict:
+    """Accept a business invite. Authenticated endpoint.
+
+    Raises:
+      404 if token is invalid
+      410 if invite expired (>72hr per INVITE_LIFETIME_HOURS)
+      403 if authenticated user's email does not match invite.email
+      409 if user is already a member of this business
+      400 if seat limit reached (race condition guard)
+    """
+    invite = (
+        await db.execute(
+            select(BusinessInvite).where(BusinessInvite.token == token)
+        )
+    ).scalar_one_or_none()
+
+    if invite is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "invite not found"},
+        )
+
+    now = datetime.now(timezone.utc)
+    if invite.expires_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={"error": "expired", "message": "invite has expired"},
+        )
+
+    user = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+
+    if user is None or user.email.lower().strip() != invite.email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "email_mismatch",
+                "message": "invite was sent to a different email",
+            },
+        )
+
+    already_member = (
+        await db.execute(
+            select(BusinessMember).where(
+                BusinessMember.business_id == invite.business_id,
+                BusinessMember.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if already_member:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "already_member",
+                "message": "You are already a member of this business",
+            },
+        )
+
+    business = (
+        await db.execute(
+            select(Business)
+            .where(Business.id == invite.business_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if business is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "not_found",
+                "message": "business no longer exists",
+            },
+        )
+
+    member_count = (
+        await db.execute(
+            select(func.count()).select_from(BusinessMember).where(
+                BusinessMember.business_id == invite.business_id
+            )
+        )
+    ).scalar_one()
+
+    if member_count >= business.seat_limit:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "seat_limit_reached",
+                "message": f"Seat limit of {business.seat_limit} reached",
+            },
+        )
+
+    member = BusinessMember(
+        business_id=invite.business_id,
+        user_id=user_id,
+        role=invite.role,
+    )
+    db.add(member)
+
+    await db.execute(
+        delete(BusinessInvite).where(BusinessInvite.id == invite.id)
+    )
+
+    await db.commit()
+
+    return {
+        "business_id": invite.business_id,
+        "role": invite.role,
+    }
