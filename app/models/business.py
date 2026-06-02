@@ -1,11 +1,17 @@
+import enum
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+
+
+class BusinessStatus(str, enum.Enum):
+    active = "active"
+    disabled = "disabled"
 
 
 class Business(Base):
@@ -20,6 +26,11 @@ class Business(Base):
         unique=True,
     )
     seat_limit = Column(Integer, nullable=False, default=5)
+    status = Column(
+        Enum(BusinessStatus, name="business_status"),
+        nullable=False,
+        server_default=BusinessStatus.active.value,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", back_populates="business")
