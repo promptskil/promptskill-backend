@@ -43,20 +43,31 @@ class SendBusinessInviteEmailTask(celery_app.Task):
         accept_url = (
             f"{settings.WEB_BASE_URL}/invite/accept?token={token}"
         )
-        result = resend.Emails.send({
-            "from": "noreply@vaineai.com",
-            "to": email,
-            "subject": f"You've been invited to join {org_name} on Vaine",
-            "html": (
-                f"<p>You've been invited to join <strong>{org_name}</strong> "
-                f"on Vaine as a <strong>{role}</strong>.</p>"
-                f"<p><a href='{accept_url}'>Accept invitation</a></p>"
-                f"<p>This invitation expires in 72 hours. "
-                f"If you did not expect this, you can ignore this email.</p>"
-            ),
-            "headers": {"Idempotency-Key": self.request.id},
-        })
-        return {"status": "sent", "resend_id": result.get("id")}
+        try:
+            result = resend.Emails.send({
+                "from": "noreply@vaineai.com",
+                "to": email,
+                "subject": f"You've been invited to join {org_name} on Vaine",
+                "html": (
+                    f"<p>You've been invited to join <strong>{org_name}</strong> "
+                    f"on Vaine as a <strong>{role}</strong>.</p>"
+                    f"<p><a href='{accept_url}'>Accept invitation</a></p>"
+                    f"<p>This invitation expires in 72 hours. "
+                    f"If you did not expect this, you can ignore this email.</p>"
+                ),
+                "headers": {"Idempotency-Key": self.request.id},
+            })
+            return {"status": "sent", "resend_id": result.get("id")}
+        except resend.exceptions.ResendError as exc:
+            logger.warning(
+                "send_business_invite_email_retry",
+                extra={
+                    "recipient_redacted": _redact_email(email),
+                    "attempt": self.request.retries + 1,
+                    "error": str(exc),
+                },
+            )
+            raise self.retry(exc=exc, countdown=4 ** self.request.retries)
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Terminus. Four sinks, isolated. No cascading failures."""
