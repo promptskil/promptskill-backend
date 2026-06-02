@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.business import Business, BusinessStatus
 from app.models.business_member import BusinessMember
 from app.models.reset_token import PasswordResetToken
-from app.models.user import AccountType, User
+from app.models.user import AccountType, User, UserStatus
 
 # Admin onboarding link lives longer than a normal 1h reset so the owner
 # has time to hand it over.
@@ -139,3 +139,32 @@ async def set_org_access(
     status_value = business.status.value
     await db.commit()
     return {"business_id": business_id, "status": status_value}
+
+
+async def set_user_access(
+    email: str,
+    enabled: bool,
+    db: AsyncSession,
+) -> dict:
+    """Enable/disable a single user's login by email.
+
+    Disabling sets users.status='disabled' — that one account (individual,
+    admin, or employee) is blocked at login until re-enabled, independent
+    of any org-level businesses.status gate. Raises ValueError if the
+    email is unknown. Non-destructive: no data is deleted.
+    """
+    email = email.lower().strip()
+
+    user = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
+    if user is None:
+        raise ValueError(f"no user with email: {email}")
+
+    user.status = UserStatus.active if enabled else UserStatus.disabled
+    # Capture before commit — expire_on_commit on the script's session would
+    # otherwise trigger a sync refresh (MissingGreenlet) on attribute access.
+    user_id = user.id
+    status_value = user.status.value
+    await db.commit()
+    return {"user_id": user_id, "status": status_value}

@@ -15,6 +15,11 @@ class AccountType(str, enum.Enum):
     employee = "employee"
 
 
+class UserStatus(str, enum.Enum):
+    active = "active"
+    disabled = "disabled"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -27,6 +32,11 @@ class User(Base):
         Enum(AccountType, name="account_type"),
         nullable=False,
         server_default=AccountType.individual.value,
+    )
+    status = Column(
+        Enum(UserStatus, name="user_status"),
+        nullable=False,
+        server_default=UserStatus.active.value,
     )
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(

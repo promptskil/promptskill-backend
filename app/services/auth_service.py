@@ -15,7 +15,7 @@ from app.config import settings
 from app.models import PasswordResetToken, Session, User
 from app.models.business import Business, BusinessStatus
 from app.models.business_member import BusinessMember
-from app.models.user import AccountType
+from app.models.user import AccountType, UserStatus
 from app.tasks.email_task import send_reset_email_task
 from app.tasks.welcome_email_task import send_welcome_email_task
 
@@ -121,6 +121,23 @@ async def login(email: str, password: str, db: AsyncSession) -> dict:
             detail={
                 "error": "invalid_credentials",
                 "message": "Incorrect email or password",
+            },
+        )
+
+    # User-level access gate — applies to every account_type
+    # (individual | admin | employee). Checked after credential
+    # verification (so it never leaks account existence) and BEFORE the
+    # org gate. Independent of businesses.status: both must be active to
+    # log in, and re-enabling an org never un-blocks a disabled user.
+    if user.status == UserStatus.disabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "access_disabled",
+                "message": (
+                    "This account's access is disabled. "
+                    "Contact support at support@vaineai.com."
+                ),
             },
         )
 
