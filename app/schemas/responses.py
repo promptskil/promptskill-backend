@@ -9,6 +9,13 @@ class TokenResponse(BaseModel):
     user_id: UUID
 
 
+class LoginResponse(BaseModel):
+    token: str
+    user_id: UUID
+    account_type: str  # individual | admin | employee
+    business_id: UUID | None
+
+
 class GenerateResponse(BaseModel):
     prompt_id: UUID
     prompt: str
