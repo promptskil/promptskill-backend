@@ -20,8 +20,6 @@ from app.schemas import (
     BusinessHistoryResponse,
     BusinessInviteResponse,
     BusinessMineResponse,
-    BusinessResponse,
-    CreateBusinessRequest,
     InviteBusinessMemberRequest,
     RemoveMemberResponse,
 )
@@ -43,23 +41,6 @@ async def my_business(
         db=db,
     )
     return BusinessMineResponse(**result)
-
-
-@router.post("/create", response_model=BusinessResponse)
-@limiter.limit("10/hour")
-async def create_business(
-    request: Request,
-    response: Response,  # REQUIRED by slowapi when headers_enabled=True
-    body: CreateBusinessRequest,
-    user_id: UUID = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> BusinessResponse:
-    result = await business_service.create_business(
-        user_id=user_id,
-        name=body.name,
-        db=db,
-    )
-    return BusinessResponse(**result)
 
 
 @router.post("/{business_id}/invite", response_model=BusinessInviteResponse)
