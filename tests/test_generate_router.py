@@ -203,3 +203,81 @@ async def test_rate_limit_kicks_in_at_61st_request(
     # 61st must be 429
     r = await client.post("/generate", json=body, headers=headers)
     assert r.status_code == 429
+
+
+# ─────────────────────── Business context stamping ──────────────────────
+
+async def _create_business_for(db_session, user_id):
+    from app.models.business import Business
+    from app.models.business_member import BusinessMember
+
+    biz = Business(owner_id=UUID(user_id), name="Router Org")
+    db_session.add(biz)
+    await db_session.flush()
+    db_session.add(
+        BusinessMember(business_id=biz.id, user_id=UUID(user_id), role="admin")
+    )
+    await db_session.commit()
+    await db_session.refresh(biz)
+    return biz
+
+
+async def test_business_context_stamps_business_id(
+    client, auth_token, mock_anthropic_ok, db_session
+):
+    token, user_id = auth_token
+    biz = await _create_business_for(db_session, user_id)
+    r = await client.post(
+        "/generate",
+        json={"model": "claude", "topic": "stamped"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "x-app-version": "1.0.0",
+            "x-business-id": str(biz.id),
+        },
+    )
+    assert r.status_code == 200, r.text
+    row = (
+        await db_session.execute(
+            select(Prompt).where(Prompt.id == UUID(r.json()["prompt_id"]))
+        )
+    ).scalar_one()
+    assert row.business_id == biz.id
+
+
+async def test_no_business_header_leaves_business_id_null(
+    client, auth_token, mock_anthropic_ok, db_session
+):
+    token, _ = auth_token
+    r = await client.post(
+        "/generate",
+        json={"model": "claude", "topic": "personal"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "x-app-version": "1.0.0",
+        },
+    )
+    assert r.status_code == 200, r.text
+    row = (
+        await db_session.execute(
+            select(Prompt).where(Prompt.id == UUID(r.json()["prompt_id"]))
+        )
+    ).scalar_one()
+    assert row.business_id is None
+
+
+async def test_invalid_business_id_returns_400(
+    client, auth_token, mock_anthropic_ok
+):
+    token, _ = auth_token
+    r = await client.post(
+        "/generate",
+        json={"model": "claude", "topic": "bad ctx"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "x-app-version": "1.0.0",
+            "x-business-id": "not-a-uuid",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"] == "invalid_business_id"

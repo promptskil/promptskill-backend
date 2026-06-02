@@ -33,6 +33,11 @@ class Prompt(Base):
     feedback_vote = Column(  # type: ignore[var-annotated]
         Enum(PromptVote, name="prompt_vote"), nullable=True
     )
+    business_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("businesses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
@@ -43,4 +48,10 @@ class Prompt(Base):
         Index("ix_prompts_version_model", "system_prompt_version", "model"),
         Index("ix_prompts_created_at", "created_at"),
         Index("ix_prompts_deleted_at", "deleted_at"),
+        Index(
+            "ix_prompts_business_created",
+            "business_id",
+            "deleted_at",
+            "created_at",
+        ),
     )

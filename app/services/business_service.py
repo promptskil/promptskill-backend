@@ -91,6 +91,51 @@ async def _require_admin(
     return business
 
 
+async def require_member(
+    business_id: UUID,
+    user_id: UUID,
+    db: AsyncSession,
+) -> Business:
+    """Return the Business if user_id is a member of it. Raise otherwise.
+
+    404 if the business does not exist (no existence leak to non-members).
+    403 if the caller is authenticated but not a member. Used by
+    POST /generate to validate a client-supplied org context before
+    stamping prompts.business_id — never trust the client's org id.
+    """
+    business = (
+        await db.execute(
+            select(Business).where(Business.id == business_id)
+        )
+    ).scalar_one_or_none()
+
+    if business is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "business not found"},
+        )
+
+    membership = (
+        await db.execute(
+            select(BusinessMember).where(
+                BusinessMember.business_id == business_id,
+                BusinessMember.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "forbidden",
+                "message": "not a member of this business",
+            },
+        )
+
+    return business
+
+
 # ─────────────────────── create_business ─────────────────────────────────
 
 async def create_business(
@@ -369,10 +414,13 @@ async def get_business_history(
     offset: int,
     db: AsyncSession,
 ) -> dict:
-    """Paginated prompts for current members of the business. Admin-only.
+    """Paginated prompts created in this business's context. Admin-only.
 
-    DOCUMENTED BEHAVIOR: prompts from removed members are not included.
-    Membership deletion = full exit from business history visibility.
+    Clean separation: returns only rows where prompts.business_id ==
+    business_id (stamped at generation time on the business surface).
+    Personal prompts (business_id IS NULL) and prompts stamped for other
+    orgs are never returned. Prompts from removed members ARE retained —
+    the work was created for the org.
 
     Raises 400 on invalid limit/offset.
     """
@@ -393,7 +441,7 @@ async def get_business_history(
         )
 
     base_filter = (
-        BusinessMember.business_id == business_id,
+        Prompt.business_id == business_id,
         Prompt.deleted_at.is_(None),
     )
 
@@ -401,7 +449,6 @@ async def get_business_history(
         await db.execute(
             select(func.count())
             .select_from(Prompt)
-            .join(BusinessMember, Prompt.user_id == BusinessMember.user_id)
             .where(*base_filter)
         )
     ).scalar_one()
@@ -409,7 +456,6 @@ async def get_business_history(
     rows = (
         await db.execute(
             select(Prompt)
-            .join(BusinessMember, Prompt.user_id == BusinessMember.user_id)
             .where(*base_filter)
             .order_by(Prompt.created_at.desc(), Prompt.id.desc())
             .limit(limit)
