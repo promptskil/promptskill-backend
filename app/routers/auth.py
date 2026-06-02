@@ -8,6 +8,7 @@ from app.database import get_db
 from app.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
+    LoginResponse,
     ResetPasswordRequest,
     SignupRequest,
     TokenResponse,
@@ -27,13 +28,13 @@ async def signup(
     return TokenResponse(token=token, user_id=user_id)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
-) -> TokenResponse:
-    token, user_id = await auth_service.login(body.email, body.password, db)
-    return TokenResponse(token=token, user_id=user_id)
+) -> LoginResponse:
+    result = await auth_service.login(body.email, body.password, db)
+    return LoginResponse(**result)
 
 
 @router.post("/logout")

@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models import PasswordResetToken, Session, User
+from app.models.business import Business, BusinessStatus
+from app.models.business_member import BusinessMember
+from app.models.user import AccountType
 from app.tasks.email_task import send_reset_email_task
 from app.tasks.welcome_email_task import send_welcome_email_task
 
@@ -107,7 +110,7 @@ async def signup(email: str, password: str, db: AsyncSession) -> tuple[str, UUID
 
 # ───────────────────────────── login ─────────────────────────────
 
-async def login(email: str, password: str, db: AsyncSession) -> tuple[str, UUID]:
+async def login(email: str, password: str, db: AsyncSession) -> dict:
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
@@ -121,6 +124,40 @@ async def login(email: str, password: str, db: AsyncSession) -> tuple[str, UUID]
             },
         )
 
+    # Resolve org context for business accounts; enforce suspension.
+    business_id = None
+    if user.account_type in (AccountType.admin, AccountType.employee):
+        membership = (
+            await db.execute(
+                select(BusinessMember).where(
+                    BusinessMember.user_id == user.id
+                )
+            )
+        ).scalar_one_or_none()
+        if membership is not None:
+            business = (
+                await db.execute(
+                    select(Business).where(
+                        Business.id == membership.business_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if (
+                business is not None
+                and business.status == BusinessStatus.disabled
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "access_disabled",
+                        "message": (
+                            "Access to this organization is disabled. "
+                            "Contact your owner."
+                        ),
+                    },
+                )
+            business_id = membership.business_id
+
     token = _issue_jwt(user.id)
     session = Session(
         user_id=user.id,
@@ -129,7 +166,12 @@ async def login(email: str, password: str, db: AsyncSession) -> tuple[str, UUID]
     )
     db.add(session)
     await db.commit()
-    return token, user.id
+    return {
+        "token": token,
+        "user_id": user.id,
+        "account_type": user.account_type.value,
+        "business_id": business_id,
+    }
 
 
 # ──────────────────────────── validate ───────────────────────────
