@@ -12,7 +12,6 @@ import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models.business import Business, BusinessStatus
 from app.models.business_member import BusinessMember
 from app.models.reset_token import PasswordResetToken
@@ -32,10 +31,10 @@ def _unusable_password_hash() -> str:
 
 
 def _reset_base_url() -> str:
-    return (
-        getattr(settings, "APP_BASE_URL", None)
-        or "https://web-production-3a6e3.up.railway.app"
-    )
+    # Admins onboard on the web; the link must hit the web app's
+    # /reset-password route (business.vaineai.com), NOT the backend
+    # endpoint (which 302-redirects to the promptskill:// deep link).
+    return "https://business.vaineai.com"
 
 
 async def provision_admin(
@@ -102,7 +101,7 @@ async def provision_admin(
         "user_id": user_id,
         "business_id": business_id,
         "reset_token": token,
-        "reset_url": f"{base}/auth/reset-password?token={token}",
+        "reset_url": f"{base}/reset-password?token={token}",
     }
 
 

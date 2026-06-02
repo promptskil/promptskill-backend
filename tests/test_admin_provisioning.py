@@ -51,7 +51,7 @@ async def test_provision_admin_creates_account_org_and_reset(db_session):
         )
     ).scalar_one()
     assert tok.expires_at > datetime.utcnow()
-    expected = f"https://x.test/auth/reset-password?token={tok.token}"
+    expected = f"https://x.test/reset-password?token={tok.token}"
     assert result["reset_url"] == expected
 
 
