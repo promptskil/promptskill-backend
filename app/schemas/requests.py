@@ -49,8 +49,9 @@ class CreateBusinessRequest(BaseModel):
 
 class InviteBusinessMemberRequest(BaseModel):
     email: EmailStr
-    role: Literal["employee", "admin"] = "employee"
+    role: Literal["employee"] = "employee"
 
 
 class AcceptInviteRequest(BaseModel):
     token: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=128)
