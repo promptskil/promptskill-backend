@@ -41,7 +41,13 @@ from app.models.business import Business
 from app.models.business_invite import BusinessInvite
 from app.models.business_member import BusinessMember
 from app.models.prompt import Prompt
-from app.models.user import User
+from app.models.session import Session
+from app.models.user import AccountType, User
+from app.services.auth_service import (
+    _hash_password,
+    _issue_jwt,
+    _session_expiry,
+)
 from app.tasks.business_invite_email_task import send_business_invite_email_task
 
 INVITE_LIFETIME_HOURS = 72
@@ -206,6 +212,15 @@ async def invite_member(
     """
     normalized_email = email.lower().strip()
 
+    if role != "employee":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_role",
+                "message": "Only employees can be invited",
+            },
+        )
+
     # Lock business row — serializes concurrent invite operations
     business = (
         await db.execute(
@@ -254,31 +269,21 @@ async def invite_member(
             },
         )
 
-    # Check email is not already a member
-    target_user = (
+    # One-email-one-role: an invited email must not already have an account.
+    existing_user = (
         await db.execute(
             select(User).where(User.email == normalized_email)
         )
     ).scalar_one_or_none()
 
-    if target_user:
-        already_member = (
-            await db.execute(
-                select(BusinessMember).where(
-                    BusinessMember.business_id == business_id,
-                    BusinessMember.user_id == target_user.id,
-                )
-            )
-        ).scalar_one_or_none()
-
-        if already_member:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "already_member",
-                    "message": "This user is already a member",
-                },
-            )
+    if existing_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "email_in_use",
+                "message": "This email already has an account",
+            },
+        )
 
     # Check no pending unexpired invite for this email+business
     now = datetime.now(timezone.utc)
@@ -543,16 +548,20 @@ async def get_my_business(user_id: UUID, db: AsyncSession) -> dict:
 
 async def accept_invite(
     token: str,
-    user_id: UUID,
+    password: str,
     db: AsyncSession,
 ) -> dict:
-    """Accept a business invite. Authenticated endpoint.
+    """Accept a business invite — creates the employee account.
+
+    Unauthenticated: the invited email has no prior account (one-email-
+    one-role). The invitee sets their password here; we create the User
+    (account_type=employee) + membership, consume the invite, and issue
+    a session so they are logged straight in.
 
     Raises:
       404 if token is invalid
       410 if invite expired (>72hr per INVITE_LIFETIME_HOURS)
-      403 if authenticated user's email does not match invite.email
-      409 if user is already a member of this business
+      409 if the email was claimed since the invite was sent
       400 if seat limit reached (race condition guard)
     """
     invite = (
@@ -574,34 +583,16 @@ async def accept_invite(
             detail={"error": "expired", "message": "invite has expired"},
         )
 
-    user = (
-        await db.execute(select(User).where(User.id == user_id))
+    existing_user = (
+        await db.execute(select(User).where(User.email == invite.email))
     ).scalar_one_or_none()
 
-    if user is None or user.email.lower().strip() != invite.email:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "email_mismatch",
-                "message": "invite was sent to a different email",
-            },
-        )
-
-    already_member = (
-        await db.execute(
-            select(BusinessMember).where(
-                BusinessMember.business_id == invite.business_id,
-                BusinessMember.user_id == user_id,
-            )
-        )
-    ).scalar_one_or_none()
-
-    if already_member:
+    if existing_user is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
-                "error": "already_member",
-                "message": "You are already a member of this business",
+                "error": "email_in_use",
+                "message": "This email already has an account",
             },
         )
 
@@ -639,20 +630,42 @@ async def accept_invite(
             },
         )
 
-    member = BusinessMember(
-        business_id=invite.business_id,
-        user_id=user_id,
-        role=invite.role,
+    user = User(
+        email=invite.email,
+        password_hash=await _hash_password(password),
+        account_type=AccountType.employee,
     )
-    db.add(member)
+    db.add(user)
+    await db.flush()
+
+    db.add(
+        BusinessMember(
+            business_id=invite.business_id,
+            user_id=user.id,
+            role="employee",
+        )
+    )
+
+    token_jwt = _issue_jwt(user.id)
+    db.add(
+        Session(
+            user_id=user.id,
+            token=token_jwt,
+            expires_at=_session_expiry(),
+        )
+    )
 
     await db.execute(
         delete(BusinessInvite).where(BusinessInvite.id == invite.id)
     )
 
+    new_user_id = user.id
+    business_id = invite.business_id
     await db.commit()
 
     return {
-        "business_id": invite.business_id,
-        "role": invite.role,
+        "token": token_jwt,
+        "user_id": new_user_id,
+        "account_type": AccountType.employee.value,
+        "business_id": business_id,
     }

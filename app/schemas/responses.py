@@ -117,5 +117,7 @@ class RemoveMemberResponse(BaseModel):
 
 
 class AcceptInviteResponse(BaseModel):
+    token: str
+    user_id: UUID
+    account_type: str  # always "employee"
     business_id: UUID
-    role: str
