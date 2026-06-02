@@ -70,11 +70,13 @@ async def test_login_happy_path(db_session):
     _, signup_user_id = await auth_service.signup(
         "login@test.com", "password123", db_session
     )
-    token, login_user_id = await auth_service.login(
+    result = await auth_service.login(
         "login@test.com", "password123", db_session
     )
-    assert login_user_id == signup_user_id
-    assert len(token) > 100
+    assert result["user_id"] == signup_user_id
+    assert len(result["token"]) > 100
+    assert result["account_type"] == "individual"
+    assert result["business_id"] is None
 
     # Two sessions now exist — signup + login
     result = await db_session.execute(
@@ -283,10 +285,10 @@ async def test_reset_password_full_cascade(db_session, mock_resend):
     # Sanity: old password no longer works, new password does
     with pytest.raises(HTTPException):
         await auth_service.login("reset@test.com", "oldpassword", db_session)
-    new_jwt, _ = await auth_service.login(
+    new_login = await auth_service.login(
         "reset@test.com", "newpassword", db_session
     )
-    assert len(new_jwt) > 100
+    assert len(new_login["token"]) > 100
 
 
 @pytest.mark.parametrize(
