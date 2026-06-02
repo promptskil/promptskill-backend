@@ -142,6 +142,7 @@ async def generate_prompt(
     user_id: uuid.UUID,
     app_version: str,
     db: AsyncSession,
+    business_id: uuid.UUID | None = None,
 ) -> dict:
     """Orchestrate a single /generate call.
 
@@ -255,6 +256,7 @@ async def generate_prompt(
         system_prompt_version=config["version"],
         app_version=app_version,
         feedback_vote=None,
+        business_id=business_id,
     )
     db.add(prompt)
     await db.commit()
