@@ -110,7 +110,14 @@ async def signup(email: str, password: str, db: AsyncSession) -> tuple[str, UUID
 
 # ───────────────────────────── login ─────────────────────────────
 
-async def login(email: str, password: str, db: AsyncSession) -> dict:
+async def authenticate(
+    email: str, password: str, db: AsyncSession
+) -> tuple[User, UUID | None]:
+    """Verify credentials + access gates + resolve org context.
+
+    Does NOT issue a session — callers decide whether to mint one. Raises
+    the same 401/403 as the original login. Returns (user, business_id).
+    """
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
@@ -175,14 +182,51 @@ async def login(email: str, password: str, db: AsyncSession) -> dict:
                 )
             business_id = membership.business_id
 
-    token = _issue_jwt(user.id)
+    return user, business_id
+
+
+async def issue_session(user_id: UUID, db: AsyncSession) -> str:
+    """Mint a JWT, persist a Session row, commit. Returns the token."""
+    token = _issue_jwt(user_id)
     session = Session(
-        user_id=user.id,
+        user_id=user_id,
         token=token,
         expires_at=_session_expiry(),
     )
     db.add(session)
     await db.commit()
+    return token
+
+
+async def login(email: str, password: str, db: AsyncSession) -> dict:
+    user, business_id = await authenticate(email, password, db)
+    token = await issue_session(user.id, db)
+    return {
+        "token": token,
+        "user_id": user.id,
+        "account_type": user.account_type.value,
+        "business_id": business_id,
+    }
+
+
+async def business_login(email: str, password: str, db: AsyncSession) -> dict:
+    """Business-surface login. Individual accounts are rejected BEFORE a
+    session is issued — no token, no session row. The fundamental
+    /auth/login is unaffected (individuals still log in there).
+    """
+    user, business_id = await authenticate(email, password, db)
+    if user.account_type == AccountType.individual:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "individual_not_permitted",
+                "message": (
+                    "This login is for business accounts. "
+                    "Use the email you were invited with."
+                ),
+            },
+        )
+    token = await issue_session(user.id, db)
     return {
         "token": token,
         "user_id": user.id,
