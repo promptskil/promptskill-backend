@@ -129,6 +129,22 @@ def load_model_registry() -> dict[str, dict]:
     return MODEL_REGISTRY
 
 
+def build_user_message(
+    config: dict, topic: str, refinement: str | None = None
+) -> str:
+    """Compose the model's user message. On refine, connect the original
+    topic with the refinement so the model sees both (refine addendum)."""
+    base = config["user_message_template"].format(topic=topic)
+    if not refinement:
+        return base
+    return (
+        f"{base}\n\n"
+        f"The user refined their request: {refinement}\n"
+        f"Produce an improved prompt that honors both the original topic "
+        f"and this refinement."
+    )
+
+
 # ─────────────────────── Phase 6 — generate_prompt ──────────────────────
 
 _GENERATE_TIMEOUT_SECONDS = 30.0
@@ -143,6 +159,7 @@ async def generate_prompt(
     app_version: str,
     db: AsyncSession,
     business_id: uuid.UUID | None = None,
+    refinement: str | None = None,
 ) -> dict:
     """Orchestrate a single /generate call.
 
@@ -154,8 +171,8 @@ async def generate_prompt(
     """
     config = MODEL_REGISTRY[model]  # validated by schema Literal
 
-    # Build user message from config template (Layer 7 v2)
-    user_message = config["user_message_template"].format(topic=topic)
+    # Build user message — composes original topic + refinement (Layer 7 v2)
+    user_message = build_user_message(config, topic, refinement)
     provider_client = get_client(config["provider"])
     prompt_text: str | None = None
 
@@ -180,6 +197,7 @@ async def generate_prompt(
             "model": model,
             "topic": topic,
             "user_id": str(user_id),
+            "refinement": refinement,
         })
         try:
             prompt_text = task.get(timeout=_CELERY_TIMEOUT_SECONDS)
