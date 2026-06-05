@@ -69,6 +69,7 @@ async def generate(
         app_version=x_app_version,
         db=db,
         business_id=business_id,
+        refinement=body.refinement,
     )
     return GenerateResponse(
         prompt_id=UUID(result["prompt_id"]),
