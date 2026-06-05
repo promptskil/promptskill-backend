@@ -76,10 +76,14 @@ class GeneratePromptTask(celery_app.Task):
     def run(self, payload: dict) -> str:
         model = payload["model"]
         topic = payload["topic"]
+        refinement = payload.get("refinement")
 
         # Lazy import — Phase 5 dependency. Loading this at module
         # top would couple Phase 4 readiness to Phase 5 shipping.
-        from app.services.generate_service import MODEL_REGISTRY
+        from app.services.generate_service import (
+            MODEL_REGISTRY,
+            build_user_message,
+        )
         from app.services.model_clients import (
             ProviderRateLimitError,
             get_client,
@@ -87,8 +91,8 @@ class GeneratePromptTask(celery_app.Task):
 
         config = MODEL_REGISTRY[model]
 
-        # Build user message from config template (Layer 7 v2)
-        user_message = config["user_message_template"].format(topic=topic)
+        # Build user message — composes original topic + refinement (Layer 7 v2)
+        user_message = build_user_message(config, topic, refinement)
 
         # Sync client per spec sync/async boundary rule.
         provider_client = get_client(config["provider"])

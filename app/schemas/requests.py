@@ -30,6 +30,7 @@ class ValidateRequest(BaseModel):
 class GenerateRequest(BaseModel):
     model: Literal["claude", "chatgpt", "gemini", "grok"]
     topic: str = Field(min_length=1, max_length=500)
+    refinement: str | None = Field(default=None, max_length=500)
 
 
 class FeedbackRequest(BaseModel):
