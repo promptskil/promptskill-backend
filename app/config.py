@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = ""  # e.g. https://your-app.railway.app — set in Railway env
     WEB_BASE_URL: str = "https://www.vaineai.com"  # frontend domain for email links
     APPLE_SHARED_SECRET: str = ""  # App-specific shared secret from App Store Connect
+    UNDERSTANDING_ENABLED: bool = False  # gate the per-user understanding overlay
+    UNDERSTANDING_MIN_HISTORY: int = 3  # min prompts before injecting understanding
 
 
 settings = Settings()

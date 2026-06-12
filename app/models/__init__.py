@@ -7,6 +7,7 @@ from app.models.prompt import Prompt, PromptVote
 from app.models.reset_token import PasswordResetToken
 from app.models.session import Session
 from app.models.user import User
+from app.models.user_profile import UserProfile
 
 __all__ = [
     "Base",
@@ -19,4 +20,5 @@ __all__ = [
     "Business",
     "BusinessMember",
     "BusinessInvite",
+    "UserProfile",
 ]
