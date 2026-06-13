@@ -37,6 +37,10 @@ from app.services.model_clients import (
     ProviderRateLimitError,
     get_client,
 )
+from app.services.profile_service import (
+    build_understanding_block,
+    get_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +177,17 @@ async def generate_prompt(
 
     # Build user message — composes original topic + refinement (Layer 7 v2)
     user_message = build_user_message(config, topic, refinement)
+
+    # Understanding overlay (Layer 7 v2 — per-user). Appended to the CONTENT;
+    # config["system_prompt"] (the json) stays the FILTER, untouched. Gated +
+    # caller-scoped: get_profile keys on this user_id only.
+    if settings.UNDERSTANDING_ENABLED:
+        understanding = build_understanding_block(
+            await get_profile(user_id, db)
+        )
+        if understanding:
+            user_message = f"{user_message}\n\n{understanding}"
+
     provider_client = get_client(config["provider"])
     prompt_text: str | None = None
 
