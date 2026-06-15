@@ -13,6 +13,7 @@ from app.routers import business as business_router
 from app.routers import generate as generate_router
 from app.routers import history as history_router
 from app.routers import invite as invite_router
+from app.routers import stripe_webhook as stripe_webhook_router
 from app.routers import user as user_router
 from app.services.generate_service import load_model_registry
 
@@ -90,6 +91,9 @@ app.include_router(user_router.router, tags=["user"])
 
 # Billing / Stripe subscriptions (individual web)
 app.include_router(billing_router.router, prefix="/billing", tags=["billing"])
+
+# Stripe webhook (carries its own /webhooks prefix; separate from Apple webhook)
+app.include_router(stripe_webhook_router.router)
 
 # Business / organization layer
 app.include_router(
