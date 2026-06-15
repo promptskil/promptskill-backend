@@ -120,6 +120,25 @@ async def test_period_end_from_items_fallback(db_session, construct):
     assert u.subscription_expires_at is not None
 
 
+async def test_period_end_from_trial_end(db_session, construct):
+    """Trialing sub with no current_period_end: expires_at falls back to trial_end."""
+    u = await _persist(db_session, _user())
+    payload = json.dumps({
+        "type": "customer.subscription.created",
+        "data": {
+            "object": {
+                "customer": u.stripe_customer_id,
+                "status": "trialing",
+                "id": "sub_trial",
+                "trial_end": PERIOD_END,
+            }
+        },
+    }).encode()
+    await stripe_webhook_service.process_event(payload, "sig", db_session)
+    assert u.subscription_status == "trialing"
+    assert u.subscription_expires_at is not None
+
+
 async def test_bad_signature_raises_valueerror(db_session, construct):
     construct["fail"] = True
     with pytest.raises(ValueError):
