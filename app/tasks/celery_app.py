@@ -23,6 +23,7 @@ celery_app = Celery(
         "app.tasks.generate_task",
         "app.tasks.welcome_email_task",
         "app.tasks.business_invite_email_task",
+        "app.tasks.reconcile_task",
     ],
 )
 
@@ -38,6 +39,10 @@ celery_app.conf.update(
         "weekly-purge": {
             "task": "purge_job_task",
             "schedule": crontab(hour=0, minute=0, day_of_week=1),
+        },
+        "daily-reconcile": {
+            "task": "reconcile_subscriptions_task",
+            "schedule": crontab(hour=3, minute=0),
         },
     },
 )
