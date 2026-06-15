@@ -25,6 +25,7 @@ import base64
 import json
 import logging
 from datetime import datetime, timezone
+from uuid import UUID
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -197,6 +198,7 @@ async def process_notification(signed_payload: str, db: AsyncSession) -> None:
         raise
 
     original_transaction_id: str = tx.get("originalTransactionId", "")
+    app_account_token: str       = tx.get("appAccountToken", "")
     product_id: str              = tx.get("productId", "")
     expires_ms: int | None       = tx.get("expiresDate")  # milliseconds epoch
     tier = PRODUCT_TIER_MAP.get(product_id)
@@ -209,26 +211,40 @@ async def process_notification(signed_payload: str, db: AsyncSession) -> None:
         logger.warning("Apple notification missing originalTransactionId — skipping")
         return
 
-    # Dispatch
+    user = await _resolve_user(db, original_transaction_id, app_account_token)
+    if user is None:
+        logger.warning(
+            "Apple %s: no user (txId=%s appAccountToken=%s)",
+            notification_type, original_transaction_id, app_account_token,
+        )
+        return
+
+    # Record the link so later notifications resolve by originalTransactionId.
+    if not user.apple_original_transaction_id:
+        user.apple_original_transaction_id = original_transaction_id
+
+    # Dispatch — apply state to the resolved user.
     try:
         if notification_type in (NOTIFICATION_SUBSCRIBED, NOTIFICATION_DID_RENEW):
-            await _handle_active(db, original_transaction_id, tier, expires_at)
-
-        elif notification_type == NOTIFICATION_EXPIRED:
-            await _handle_expired(db, original_transaction_id)
+            user.subscription_status = "active"
+            user.subscription_expires_at = expires_at
+            user.subscription_source = "apple"
+            if tier:
+                user.subscription_tier = tier
 
         elif notification_type == NOTIFICATION_DID_FAIL_TO_RENEW:
-            # Still in grace period — keep active, flag billing_retry
-            await _handle_billing_retry(db, original_transaction_id, expires_at)
+            # Still in grace period — keep access, flag billing_retry.
+            user.subscription_status = "billing_retry"
+            user.subscription_expires_at = expires_at
 
-        elif notification_type == NOTIFICATION_GRACE_PERIOD_EXPIRED:
-            await _handle_expired(db, original_transaction_id)
-
-        elif notification_type == NOTIFICATION_REFUND:
-            await _handle_expired(db, original_transaction_id)
-
-        elif notification_type == NOTIFICATION_REVOKE:
-            await _handle_expired(db, original_transaction_id)
+        elif notification_type in (
+            NOTIFICATION_EXPIRED,
+            NOTIFICATION_GRACE_PERIOD_EXPIRED,
+            NOTIFICATION_REFUND,
+            NOTIFICATION_REVOKE,
+        ):
+            user.subscription_status = "expired"
+            user.subscription_expires_at = None
 
         else:
             logger.info(
@@ -237,6 +253,10 @@ async def process_notification(signed_payload: str, db: AsyncSession) -> None:
             )
 
         await db.commit()
+        logger.info(
+            "Apple %s applied: user=%s status=%s",
+            notification_type, user.id, user.subscription_status,
+        )
 
     except Exception as exc:  # noqa: BLE001
         await db.rollback()
@@ -248,71 +268,35 @@ async def process_notification(signed_payload: str, db: AsyncSession) -> None:
         raise  # propagate → 500 → Apple retries
 
 
-# ── DB handlers ───────────────────────────────────────────────────────────────
+# ── User resolution ─────────────────────────────────────────────────────────
 
-async def _find_user(db: AsyncSession, original_transaction_id: str) -> User | None:
+async def _resolve_user(
+    db: AsyncSession, original_transaction_id: str, app_account_token: str
+) -> User | None:
+    """Resolve the user for an Apple notification.
+
+    First by apple_original_transaction_id (already linked). If not found and
+    appAccountToken is present — the user id the iOS app sets on the StoreKit
+    purchase — resolve by user id, establishing the link on first notification.
+    """
     result = await db.execute(
         select(User).where(
             User.apple_original_transaction_id == original_transaction_id
         )
     )
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+    if user is not None:
+        return user
 
+    if app_account_token:
+        try:
+            user_id = UUID(app_account_token)
+        except (ValueError, TypeError):
+            logger.warning(
+                "Apple appAccountToken not a valid UUID: %s", app_account_token
+            )
+            return None
+        result = await db.execute(select(User).where(User.id == user_id))
+        return result.scalar_one_or_none()
 
-async def _handle_active(
-    db: AsyncSession,
-    original_transaction_id: str,
-    tier: str | None,
-    expires_at: datetime | None,
-) -> None:
-    user = await _find_user(db, original_transaction_id)
-    if not user:
-        logger.warning(
-            "Apple SUBSCRIBED/DID_RENEW: no user found for txId=%s",
-            original_transaction_id,
-        )
-        return
-
-    user.subscription_status     = "active"
-    user.subscription_expires_at = expires_at
-    if tier:
-        user.subscription_tier = tier
-
-    logger.info(
-        "Subscription activated: user=%s tier=%s expires=%s",
-        user.id, user.subscription_tier, expires_at,
-    )
-
-
-async def _handle_billing_retry(
-    db: AsyncSession,
-    original_transaction_id: str,
-    expires_at: datetime | None,
-) -> None:
-    user = await _find_user(db, original_transaction_id)
-    if not user:
-        logger.warning(
-            "Apple DID_FAIL_TO_RENEW: no user found for txId=%s",
-            original_transaction_id,
-        )
-        return
-
-    user.subscription_status     = "billing_retry"
-    user.subscription_expires_at = expires_at
-
-    logger.info("Subscription billing_retry: user=%s expires=%s", user.id, expires_at)
-
-
-async def _handle_expired(db: AsyncSession, original_transaction_id: str) -> None:
-    user = await _find_user(db, original_transaction_id)
-    if not user:
-        logger.warning(
-            "Apple EXPIRED/REFUND/REVOKE: no user found for txId=%s",
-            original_transaction_id,
-        )
-        return
-
-    user.subscription_status     = "expired"
-    user.subscription_expires_at = None
-
-    logger.info("Subscription expired: user=%s", user.id)
+    return None
