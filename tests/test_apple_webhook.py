@@ -99,6 +99,22 @@ async def test_subscribed_sets_tier_and_expiry(db_session, verify):
     assert u.subscription_expires_at is not None
 
 
+async def test_appaccounttoken_links_user(db_session, verify):
+    """First notification: resolve by appAccountToken (user id) and link it."""
+    u = await _persist(db_session, _user())  # no apple_original_transaction_id
+    verify["outer"] = _outer("SUBSCRIBED")
+    verify["tx"] = {
+        "originalTransactionId": "otid_new",
+        "appAccountToken": str(u.id),
+        "productId": PRO_PRODUCT,
+        "expiresDate": EXPIRES_MS,
+    }
+    await apple_webhook_service.process_notification("OUTER", db_session)
+    assert u.subscription_status == "active"
+    assert u.subscription_source == "apple"
+    assert u.apple_original_transaction_id == "otid_new"  # link established
+
+
 async def test_unknown_type_no_change(db_session, verify):
     otid = f"otid_{uuid4().hex[:8]}"
     u = await _persist(
