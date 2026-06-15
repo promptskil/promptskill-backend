@@ -89,6 +89,9 @@ async def process_event(
         items = (sub.get("items") or {}).get("data") or []
         if items:
             period_end = items[0].get("current_period_end")
+    if not period_end:
+        # Trialing subscriptions: the access boundary is the trial end.
+        period_end = sub.get("trial_end")
     if period_end:
         expires_at = datetime.fromtimestamp(period_end, tz=timezone.utc)
 
