@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""  # whsec_... — webhook signing secret
     STRIPE_PRICE_ID: str = ""  # price_... — individual plan
     STRIPE_TRIAL_DAYS: int = 7  # free-trial length (Decision 6a)
+    PAYWALL_ENABLED: bool = False  # gate /generate on individual subscription
     UNDERSTANDING_ENABLED: bool = False  # gate the per-user understanding overlay
     UNDERSTANDING_MIN_HISTORY: int = 3  # min prompts before injecting understanding
 
