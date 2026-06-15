@@ -21,6 +21,10 @@ class GenerateResponse(BaseModel):
     prompt: str
 
 
+class CheckoutResponse(BaseModel):
+    url: str
+
+
 # ─────────────────────── Phase 7 — Feedback & History ────────────────────
 
 class FeedbackResponse(BaseModel):

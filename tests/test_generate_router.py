@@ -14,7 +14,7 @@ Gate coverage (from /build-checklist Step 6.3):
   - 61st request within hour → 429 (keyed on user_id)
 """
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -281,3 +281,24 @@ async def test_invalid_business_id_returns_400(
     )
     assert r.status_code == 400
     assert r.json()["detail"]["error"] == "invalid_business_id"
+
+
+# ─────────────────────── Paywall gate (PAYWALL_ENABLED) ─────────────────
+
+async def test_no_subscription_returns_402(client, mock_anthropic_ok, monkeypatch):
+    """With the paywall switched on, an individual user without an active
+    subscription is blocked from /generate."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "PAYWALL_ENABLED", True)
+    s = await client.post(
+        "/auth/signup",
+        json={"email": f"{uuid4()}@test.com", "password": "password123"},
+    )
+    token = s.json()["token"]
+    r = await client.post(
+        "/generate",
+        json={"model": "claude", "topic": "x"},
+        headers={"Authorization": f"Bearer {token}", "x-app-version": "1.0.0"},
+    )
+    assert r.status_code == 402
