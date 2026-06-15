@@ -52,6 +52,11 @@ class User(Base):
         String, unique=True, index=True, nullable=True
     )
 
+    # Stripe (web) billing — added by migration b8c9d0e1f2a3.
+    stripe_customer_id = Column(String, unique=True, index=True, nullable=True)
+    stripe_subscription_id = Column(String, index=True, nullable=True)
+    subscription_source = Column(String, nullable=True)  # 'stripe' | 'apple'
+
     prompts = relationship(
         "Prompt", back_populates="user", passive_deletes=True
     )
