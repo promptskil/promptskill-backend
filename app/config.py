@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = ""  # e.g. https://your-app.railway.app — set in Railway env
     WEB_BASE_URL: str = "https://www.vaineai.com"  # frontend domain for email links
     APPLE_SHARED_SECRET: str = ""  # App-specific shared secret from App Store Connect
+    STRIPE_SECRET_KEY: str = ""  # sk_... — set in Railway env, never in code
+    STRIPE_WEBHOOK_SECRET: str = ""  # whsec_... — webhook signing secret
+    STRIPE_PRICE_ID: str = ""  # price_... — individual plan
+    STRIPE_TRIAL_DAYS: int = 7  # free-trial length (Decision 6a)
     UNDERSTANDING_ENABLED: bool = False  # gate the per-user understanding overlay
     UNDERSTANDING_MIN_HISTORY: int = 3  # min prompts before injecting understanding
 
