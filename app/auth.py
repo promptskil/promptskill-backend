@@ -90,6 +90,8 @@ async def require_active_subscription(
     accounts (admin/employee) are governed by org status gates, not Stripe,
     so they bypass this paywall.
     """
+    if not settings.PAYWALL_ENABLED:
+        return user_id  # paywall disabled — no gating
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:

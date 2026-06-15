@@ -27,7 +27,7 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user
+from app.auth import require_active_subscription
 from app.config import settings
 from app.database import get_db
 from app.rate_limit import limiter
@@ -47,7 +47,7 @@ async def generate(
     background_tasks: BackgroundTasks,
     x_app_version: str | None = Header(default=None, alias="x-app-version"),
     x_business_id: str | None = Header(default=None, alias="x-business-id"),
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(require_active_subscription),
     db: AsyncSession = Depends(get_db),
 ) -> GenerateResponse:
     if not x_app_version:

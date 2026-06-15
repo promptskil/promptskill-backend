@@ -12,10 +12,16 @@ import pytest
 from fastapi import HTTPException
 
 from app.auth import _subscription_active, require_active_subscription
+from app.config import settings
 from app.models.user import AccountType, User
 
 FUTURE = datetime.now(timezone.utc) + timedelta(days=5)
 PAST = datetime.now(timezone.utc) - timedelta(days=1)
+
+
+@pytest.fixture(autouse=True)
+def _enable_paywall(monkeypatch):
+    monkeypatch.setattr(settings, "PAYWALL_ENABLED", True)
 
 
 def _user(**kw) -> User:
