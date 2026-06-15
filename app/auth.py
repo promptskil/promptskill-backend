@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models import Session as SessionModel, User
+from app.models import Session as SessionModel
+from app.models import User
 from app.models.user import AccountType
 
 bearer_scheme = HTTPBearer(auto_error=False)
