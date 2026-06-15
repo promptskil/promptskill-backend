@@ -43,6 +43,15 @@ class User(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
+    # Subscription state (columns added by migration b2c3d4e5f6a7).
+    # Declared here so the ORM can read/gate on subscription status.
+    subscription_tier = Column(String, nullable=True)
+    subscription_status = Column(String, nullable=True)
+    subscription_expires_at = Column(DateTime(timezone=True), nullable=True)
+    apple_original_transaction_id = Column(
+        String, unique=True, index=True, nullable=True
+    )
+
     prompts = relationship(
         "Prompt", back_populates="user", passive_deletes=True
     )
