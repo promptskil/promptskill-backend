@@ -1,4 +1,9 @@
-"""Stripe webhook tests — Phase 5. construct_event mocked (no real signature)."""
+"""Stripe webhook tests — Phase 5.
+
+construct_event is mocked for signature verification only; the service reads
+fields from the JSON payload, so tests pass the event as JSON bytes.
+"""
+import json
 from uuid import uuid4
 
 import pytest
@@ -30,9 +35,9 @@ async def _persist(db, user):
     return user
 
 
-def _event(etype, customer, status="active", sub_id="sub_123",
-           period_end=PERIOD_END):
-    return {
+def _payload(etype, customer, status="active", sub_id="sub_123",
+             period_end=PERIOD_END):
+    return json.dumps({
         "type": etype,
         "data": {
             "object": {
@@ -42,32 +47,32 @@ def _event(etype, customer, status="active", sub_id="sub_123",
                 "current_period_end": period_end,
             }
         },
-    }
+    }).encode()
 
 
 @pytest.fixture
 def construct(monkeypatch):
-    """Mock stripe.Webhook.construct_event. Set holder['event'] to the dict
-    to return; leave it None to simulate a signature failure (raises)."""
-    holder = {"event": None}
+    """Mock construct_event for signature verification only.
+    Set state['fail']=True to simulate a bad signature (raises)."""
+    state = {"fail": False}
 
     def fake_construct(payload, sig, secret):
-        if holder["event"] is None:
+        if state["fail"]:
             raise ValueError("bad signature")
-        return holder["event"]
+        return None  # return unused; the service reads json.loads(payload)
 
     monkeypatch.setattr(
         stripe_webhook_service.stripe.Webhook, "construct_event", fake_construct
     )
-    return holder
+    return state
 
 
 async def test_subscription_created_trialing(db_session, construct):
     u = await _persist(db_session, _user())
-    construct["event"] = _event(
+    payload = _payload(
         "customer.subscription.created", u.stripe_customer_id, status="trialing"
     )
-    await stripe_webhook_service.process_event(b"{}", "sig", db_session)
+    await stripe_webhook_service.process_event(payload, "sig", db_session)
     assert u.subscription_status == "trialing"
     assert u.subscription_source == "stripe"
     assert u.stripe_subscription_id == "sub_123"
@@ -80,34 +85,52 @@ async def test_subscription_created_trialing(db_session, construct):
 )
 async def test_subscription_updated_status_map(db_session, construct, st, expected):
     u = await _persist(db_session, _user())
-    construct["event"] = _event(
+    payload = _payload(
         "customer.subscription.updated", u.stripe_customer_id, status=st
     )
-    await stripe_webhook_service.process_event(b"{}", "sig", db_session)
+    await stripe_webhook_service.process_event(payload, "sig", db_session)
     assert u.subscription_status == expected
 
 
 async def test_subscription_deleted_expires(db_session, construct):
     u = await _persist(db_session, _user(subscription_status="active"))
-    construct["event"] = _event(
+    payload = _payload(
         "customer.subscription.deleted", u.stripe_customer_id, status="canceled"
     )
-    await stripe_webhook_service.process_event(b"{}", "sig", db_session)
+    await stripe_webhook_service.process_event(payload, "sig", db_session)
     assert u.subscription_status == "expired"
 
 
+async def test_period_end_from_items_fallback(db_session, construct):
+    """Newer API (dahlia): current_period_end is on items, not top level."""
+    u = await _persist(db_session, _user())
+    payload = json.dumps({
+        "type": "customer.subscription.created",
+        "data": {
+            "object": {
+                "customer": u.stripe_customer_id,
+                "status": "trialing",
+                "id": "sub_999",
+                "items": {"data": [{"current_period_end": PERIOD_END}]},
+            }
+        },
+    }).encode()
+    await stripe_webhook_service.process_event(payload, "sig", db_session)
+    assert u.subscription_status == "trialing"
+    assert u.subscription_expires_at is not None
+
+
 async def test_bad_signature_raises_valueerror(db_session, construct):
-    construct["event"] = None  # triggers the raise in fake_construct
+    construct["fail"] = True
     with pytest.raises(ValueError):
         await stripe_webhook_service.process_event(b"{}", "badsig", db_session)
 
 
 async def test_unknown_customer_is_noop(db_session, construct):
-    construct["event"] = _event(
+    payload = _payload(
         "customer.subscription.updated", "cus_nonexistent", status="active"
     )
-    # Must not raise; just logs and returns.
-    await stripe_webhook_service.process_event(b"{}", "sig", db_session)
+    await stripe_webhook_service.process_event(payload, "sig", db_session)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -124,11 +147,11 @@ async def client(db_session):
 
 async def test_webhook_endpoint_received(client, db_session, construct):
     u = await _persist(db_session, _user())
-    construct["event"] = _event(
+    payload = _payload(
         "customer.subscription.updated", u.stripe_customer_id, status="active"
     )
     r = await client.post(
-        "/webhooks/stripe", content=b"{}", headers={"stripe-signature": "sig"}
+        "/webhooks/stripe", content=payload, headers={"stripe-signature": "sig"}
     )
     assert r.status_code == 200
     assert r.json()["received"] is True

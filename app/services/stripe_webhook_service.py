@@ -6,6 +6,7 @@ subscription access. construct_event raises on a bad signature (caller returns
 current_period_end maps to subscription_expires_at. The user is resolved via
 stripe_customer_id (the link established at checkout).
 """
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -45,13 +46,16 @@ async def process_event(
     Raises ValueError on a bad signature/payload (caller returns 400).
     """
     try:
-        event = stripe.Webhook.construct_event(
+        stripe.Webhook.construct_event(
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
     except Exception as exc:  # noqa: BLE001 — any verify failure -> 400
         logger.warning("Stripe webhook signature verification failed: %s", exc)
         raise ValueError("Invalid Stripe signature") from exc
 
+    # Signature verified above. Read fields from plain JSON — the Stripe SDK
+    # objects do not expose dict-style .get() in this version.
+    event = json.loads(payload)
     event_type = event["type"]
     if event_type not in _SUBSCRIPTION_EVENTS:
         logger.info("Stripe event %s — no action taken", event_type)
@@ -80,6 +84,11 @@ async def process_event(
 
     expires_at = None
     period_end = sub.get("current_period_end")
+    if not period_end:
+        # Newer API versions (e.g. dahlia) moved the period end onto items.
+        items = (sub.get("items") or {}).get("data") or []
+        if items:
+            period_end = items[0].get("current_period_end")
     if period_end:
         expires_at = datetime.fromtimestamp(period_end, tz=timezone.utc)
 
