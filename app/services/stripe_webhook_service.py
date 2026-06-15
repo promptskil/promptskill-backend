@@ -38,6 +38,23 @@ _SUBSCRIPTION_EVENTS = {
 }
 
 
+def extract_period_end(sub: dict) -> int | None:
+    """Resolve the access-boundary unix timestamp from a subscription dict.
+
+    current_period_end (older API) -> items[0].current_period_end (dahlia)
+    -> trial_end (trialing subs). Returns None if none present. Shared by the
+    webhook and the reconciliation task so both map periods identically.
+    """
+    period_end = sub.get("current_period_end")
+    if not period_end:
+        items = (sub.get("items") or {}).get("data") or []
+        if items:
+            period_end = items[0].get("current_period_end")
+    if not period_end:
+        period_end = sub.get("trial_end")
+    return period_end
+
+
 async def process_event(
     payload: bytes, sig_header: str, db: AsyncSession
 ) -> None:
@@ -83,15 +100,7 @@ async def process_event(
         new_status = STRIPE_STATUS_MAP.get(sub.get("status", ""), "expired")
 
     expires_at = None
-    period_end = sub.get("current_period_end")
-    if not period_end:
-        # Newer API versions (e.g. dahlia) moved the period end onto items.
-        items = (sub.get("items") or {}).get("data") or []
-        if items:
-            period_end = items[0].get("current_period_end")
-    if not period_end:
-        # Trialing subscriptions: the access boundary is the trial end.
-        period_end = sub.get("trial_end")
+    period_end = extract_period_end(sub)
     if period_end:
         expires_at = datetime.fromtimestamp(period_end, tz=timezone.utc)
 
