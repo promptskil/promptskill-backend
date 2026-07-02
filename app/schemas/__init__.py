@@ -26,6 +26,7 @@ from app.schemas.responses import (
     HistoryResponse,
     LoginResponse,
     RemoveMemberResponse,
+    SignupResponse,
     TokenResponse,
     UserResponse,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "CreateBusinessRequest",
     "InviteBusinessMemberRequest",
     "AcceptInviteRequest",
+    "SignupResponse",
     "TokenResponse",
     "LoginResponse",
     "GenerateResponse",

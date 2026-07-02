@@ -634,6 +634,7 @@ async def accept_invite(
         email=invite.email,
         password_hash=await _hash_password(password),
         account_type=AccountType.employee,
+        email_verified_at=datetime.utcnow(),
     )
     db.add(user)
     await db.flush()

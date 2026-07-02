@@ -9,6 +9,11 @@ class TokenResponse(BaseModel):
     user_id: UUID
 
 
+class SignupResponse(BaseModel):
+    user_id: UUID
+    email_verification_required: bool = True
+
+
 class LoginResponse(BaseModel):
     token: str
     user_id: UUID

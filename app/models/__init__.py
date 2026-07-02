@@ -3,6 +3,7 @@ from app.models.business import Business
 from app.models.business_invite import BusinessInvite
 from app.models.business_member import BusinessMember
 from app.models.dead_letter_email import DeadLetterEmail
+from app.models.email_verification_token import EmailVerificationToken
 from app.models.prompt import Prompt, PromptVote
 from app.models.reset_token import PasswordResetToken
 from app.models.session import Session
@@ -14,6 +15,7 @@ __all__ = [
     "User",
     "Session",
     "PasswordResetToken",
+    "EmailVerificationToken",
     "Prompt",
     "PromptVote",
     "DeadLetterEmail",

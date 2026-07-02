@@ -22,6 +22,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.database import get_db
 from app.main import app
+from tests.auth_helpers import signup_verify_login
 
 
 # ─────────────────────── fixtures ───────────────────────────────────────
@@ -38,14 +39,8 @@ async def client(db_session):
     app.dependency_overrides.clear()
 
 
-async def _signup(client, email):
-    r = await client.post(
-        "/auth/signup",
-        json={"email": email, "password": "password123"},
-    )
-    assert r.status_code == 200, r.text
-    b = r.json()
-    return b["token"], b["user_id"]
+async def _signup(client, db_session, email):
+    return await signup_verify_login(client, db_session, email)
 
 
 async def _generate_prompt(client, token):
@@ -73,8 +68,8 @@ async def _generate_prompt(client, token):
 
 # ─────────────────────── feedback ───────────────────────────────────────
 
-async def test_feedback_happy_path(client):
-    token, _ = await _signup(client, "fb-happy@t.com")
+async def test_feedback_happy_path(client, db_session):
+    token, _ = await _signup(client, db_session, "fb-happy@t.com")
     prompt_id = await _generate_prompt(client, token)
 
     r = await client.patch(
@@ -96,9 +91,9 @@ async def test_feedback_no_auth_returns_401(client):
     assert r.status_code == 401
 
 
-async def test_feedback_cross_user_returns_404(client):
-    t_a, _ = await _signup(client, "fb-a@t.com")
-    t_b, _ = await _signup(client, "fb-b@t.com")
+async def test_feedback_cross_user_returns_404(client, db_session):
+    t_a, _ = await _signup(client, db_session, "fb-a@t.com")
+    t_b, _ = await _signup(client, db_session, "fb-b@t.com")
     prompt_id = await _generate_prompt(client, t_a)
 
     r = await client.patch(
@@ -109,8 +104,8 @@ async def test_feedback_cross_user_returns_404(client):
     assert r.status_code == 404
 
 
-async def test_feedback_invalid_vote_returns_400(client):
-    token, _ = await _signup(client, "fb-invalid@t.com")
+async def test_feedback_invalid_vote_returns_400(client, db_session):
+    token, _ = await _signup(client, db_session, "fb-invalid@t.com")
     prompt_id = await _generate_prompt(client, token)
 
     r = await client.patch(
@@ -123,8 +118,8 @@ async def test_feedback_invalid_vote_returns_400(client):
 
 # ─────────────────────── history ────────────────────────────────────────
 
-async def test_history_happy_path(client):
-    token, _ = await _signup(client, "h-happy@t.com")
+async def test_history_happy_path(client, db_session):
+    token, _ = await _signup(client, db_session, "h-happy@t.com")
     await _generate_prompt(client, token)
     await _generate_prompt(client, token)
 
@@ -145,8 +140,8 @@ async def test_history_no_auth_returns_401(client):
     assert r.status_code == 401
 
 
-async def test_history_empty_user(client):
-    token, _ = await _signup(client, "h-empty@t.com")
+async def test_history_empty_user(client, db_session):
+    token, _ = await _signup(client, db_session, "h-empty@t.com")
     r = await client.get(
         "/history",
         headers={"Authorization": f"Bearer {token}"},
@@ -157,8 +152,8 @@ async def test_history_empty_user(client):
     assert body["total"] == 0
 
 
-async def test_history_limit_over_50_returns_400(client):
-    token, _ = await _signup(client, "h-limit@t.com")
+async def test_history_limit_over_50_returns_400(client, db_session):
+    token, _ = await _signup(client, db_session, "h-limit@t.com")
     r = await client.get(
         "/history?limit=51",
         headers={"Authorization": f"Bearer {token}"},
@@ -169,8 +164,8 @@ async def test_history_limit_over_50_returns_400(client):
 
 # ─────────────────────── delete ─────────────────────────────────────────
 
-async def test_delete_happy_path(client):
-    token, _ = await _signup(client, "d-happy@t.com")
+async def test_delete_happy_path(client, db_session):
+    token, _ = await _signup(client, db_session, "d-happy@t.com")
     prompt_id = await _generate_prompt(client, token)
 
     r = await client.patch(
@@ -196,9 +191,9 @@ async def test_delete_no_auth_returns_401(client):
     assert r.status_code == 401
 
 
-async def test_delete_cross_user_returns_404(client):
-    t_a, _ = await _signup(client, "d-a@t.com")
-    t_b, _ = await _signup(client, "d-b@t.com")
+async def test_delete_cross_user_returns_404(client, db_session):
+    t_a, _ = await _signup(client, db_session, "d-a@t.com")
+    t_b, _ = await _signup(client, db_session, "d-b@t.com")
     prompt_id = await _generate_prompt(client, t_a)
 
     r = await client.patch(
@@ -208,8 +203,8 @@ async def test_delete_cross_user_returns_404(client):
     assert r.status_code == 404
 
 
-async def test_delete_malformed_uuid_returns_400(client):
-    token, _ = await _signup(client, "d-bad@t.com")
+async def test_delete_malformed_uuid_returns_400(client, db_session):
+    token, _ = await _signup(client, db_session, "d-bad@t.com")
     r = await client.patch(
         "/prompts/not-a-uuid/delete",
         headers={"Authorization": f"Bearer {token}"},
@@ -217,8 +212,8 @@ async def test_delete_malformed_uuid_returns_400(client):
     assert r.status_code == 400
 
 
-async def test_double_delete_returns_404(client):
-    token, _ = await _signup(client, "d-double@t.com")
+async def test_double_delete_returns_404(client, db_session):
+    token, _ = await _signup(client, db_session, "d-double@t.com")
     prompt_id = await _generate_prompt(client, token)
 
     r1 = await client.patch(

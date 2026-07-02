@@ -5,11 +5,13 @@ Covers:
   - auth_service.login user-level gate (403 access_disabled) and its
     independence from the org-level businesses.status gate (precedence).
 """
+from datetime import datetime
 from uuid import uuid4
 
 import bcrypt
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 
 from app.models.business import Business, BusinessStatus
 from app.models.business_member import BusinessMember
@@ -28,6 +30,7 @@ async def _active_org(db_session):
         email=f"own-{uuid4().hex[:8]}@t.local",
         password_hash=_hash(_PW),
         account_type=AccountType.admin,
+        email_verified_at=datetime.utcnow(),
     )
     db_session.add(owner)
     await db_session.flush()
@@ -49,6 +52,7 @@ async def _employee(db_session, biz, status=UserStatus.active):
         password_hash=_hash(_PW),
         account_type=AccountType.employee,
         status=status,
+        email_verified_at=datetime.utcnow(),
     )
     db_session.add(user)
     await db_session.flush()
@@ -57,6 +61,13 @@ async def _employee(db_session, biz, status=UserStatus.active):
     )
     await db_session.commit()
     return user
+
+
+async def _mark_verified(db_session, email: str) -> None:
+    result = await db_session.execute(select(User).where(User.email == email))
+    user = result.scalar_one()
+    user.email_verified_at = datetime.utcnow()
+    await db_session.commit()
 
 
 # ───────────────────────── service: set_user_access ─────────────────────
@@ -88,6 +99,7 @@ async def test_set_user_access_unknown_email_raises(db_session):
 async def test_login_disabled_individual_403(db_session):
     email = f"ind-{uuid4().hex[:8]}@t.local"
     await auth_service.signup(email, _PW, db_session)
+    await _mark_verified(db_session, email)
     await admin_service.set_user_access(email, False, db_session)
 
     with pytest.raises(HTTPException) as exc:
@@ -101,6 +113,7 @@ async def test_login_active_individual_ok(db_session):
     """Control — an active individual still logs in."""
     email = f"ind-{uuid4().hex[:8]}@t.local"
     await auth_service.signup(email, _PW, db_session)
+    await _mark_verified(db_session, email)
 
     result = await auth_service.login(email, _PW, db_session)
     assert result["account_type"] == "individual"

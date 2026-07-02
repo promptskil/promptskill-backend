@@ -4,20 +4,21 @@ Scope: locks Phase 3 service-layer behavior so Phase 4 Celery migration
 has a pass/fail criterion. All tests run against real Postgres via
 SAVEPOINT rollback (see conftest.py).
 
-Test inventory (13 functions, D1 minimal + 1 parametrized reset rejection):
+Test inventory (14 functions, D1 minimal + 1 parametrized reset rejection):
   1.  test_signup_happy_path
   2.  test_signup_duplicate_email_409
   3.  test_login_happy_path
-  4.  test_login_invalid_credentials (parametrized: missing user, wrong pw)
-  5.  test_validate_valid_token
-  6.  test_validate_expired_session
-  7.  test_validate_invalid_token
-  8.  test_logout_deletes_session
-  9.  test_forgot_password_happy_invalidates_prior
-  10. test_forgot_password_missing_user_404
-  11. test_forgot_password_dispatch_failure_does_not_propagate
-  12. test_reset_password_full_cascade
-  13. test_reset_password_rejects_bad_token (parametrized: invalid, used, expired)
+  4.  test_login_requires_email_verification
+  5.  test_login_invalid_credentials (parametrized: missing user, wrong pw)
+  6.  test_validate_valid_token
+  7.  test_validate_expired_session
+  8.  test_validate_invalid_token
+  9.  test_logout_deletes_session
+  10. test_forgot_password_happy_invalidates_prior
+  11. test_forgot_password_missing_user_404
+  12. test_forgot_password_dispatch_failure_does_not_propagate
+  13. test_reset_password_full_cascade
+  14. test_reset_password_rejects_bad_token (parametrized: invalid, used, expired)
 """
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -27,17 +28,37 @@ import resend
 from fastapi import HTTPException
 from sqlalchemy import select, update
 
-from app.models import PasswordResetToken, Session, User
+from app.models import EmailVerificationToken, PasswordResetToken, Session, User
 from app.services import auth_service
+
+
+async def _verification_token_for(db_session, email: str) -> str:
+    result = await db_session.execute(
+        select(EmailVerificationToken.token)
+        .join(User, User.id == EmailVerificationToken.user_id)
+        .where(User.email == email)
+        .where(EmailVerificationToken.used_at.is_(None))
+    )
+    return result.scalar_one()
+
+
+async def _signup_and_verify(
+    db_session,
+    email: str,
+    password: str = "password123",
+):
+    user_id = await auth_service.signup(email, password, db_session)
+    token = await _verification_token_for(db_session, email)
+    await auth_service.verify_email(token, db_session)
+    return user_id
 
 
 # ─────────────────────── signup ─────────────────────────────────────────
 
-async def test_signup_happy_path(db_session):
-    token, user_id = await auth_service.signup(
+async def test_signup_happy_path(db_session, mock_resend):
+    user_id = await auth_service.signup(
         "signup-happy@test.com", "password123", db_session
     )
-    assert len(token) > 100  # JWT shape check
 
     # User row persisted
     result = await db_session.execute(
@@ -46,14 +67,22 @@ async def test_signup_happy_path(db_session):
     user = result.scalar_one()
     assert user.id == user_id
     assert user.password_hash.startswith("$2b$")  # bcrypt marker
+    assert user.email_verified_at is None
 
-    # Session row persisted with the issued token
+    # Signup does not issue a session until the email is verified.
     result = await db_session.execute(
-        select(Session).where(Session.token == token)
+        select(Session).where(Session.user_id == user_id)
     )
-    session = result.scalar_one()
-    assert session.user_id == user_id
-    assert session.expires_at > datetime.utcnow()
+    assert result.scalar_one_or_none() is None
+
+    token_result = await db_session.execute(
+        select(EmailVerificationToken)
+        .where(EmailVerificationToken.user_id == user_id)
+    )
+    verification_token = token_result.scalar_one()
+    assert verification_token.used_at is None
+    assert verification_token.expires_at > datetime.utcnow()
+    assert mock_resend.call_count == 1
 
 
 async def test_signup_duplicate_email_409(db_session):
@@ -67,8 +96,8 @@ async def test_signup_duplicate_email_409(db_session):
 # ─────────────────────── login ──────────────────────────────────────────
 
 async def test_login_happy_path(db_session):
-    _, signup_user_id = await auth_service.signup(
-        "login@test.com", "password123", db_session
+    signup_user_id = await _signup_and_verify(
+        db_session, "login@test.com", "password123"
     )
     result = await auth_service.login(
         "login@test.com", "password123", db_session
@@ -78,11 +107,28 @@ async def test_login_happy_path(db_session):
     assert result["account_type"] == "individual"
     assert result["business_id"] is None
 
-    # Two sessions now exist — signup + login
+    # Signup does not issue a session; login creates the first one.
     result = await db_session.execute(
         select(Session).where(Session.user_id == signup_user_id)
     )
-    assert len(result.scalars().all()) == 2
+    assert len(result.scalars().all()) == 1
+
+
+async def test_login_requires_email_verification(db_session):
+    user_id = await auth_service.signup(
+        "unverified@test.com", "password123", db_session
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_service.login(
+            "unverified@test.com", "password123", db_session
+        )
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["error"] == "email_not_verified"
+
+    result = await db_session.execute(
+        select(Session).where(Session.user_id == user_id)
+    )
+    assert result.scalar_one_or_none() is None
 
 
 @pytest.mark.parametrize(
@@ -108,17 +154,21 @@ async def test_login_invalid_credentials(
 # ─────────────────────── validate ───────────────────────────────────────
 
 async def test_validate_valid_token(db_session):
-    token, user_id = await auth_service.signup(
-        "val@test.com", "password123", db_session
+    user_id = await _signup_and_verify(
+        db_session, "val@test.com", "password123"
     )
+    login = await auth_service.login("val@test.com", "password123", db_session)
+    token = login["token"]
     result = await auth_service.validate_token(token, db_session)
     assert result == {"valid": True, "user_id": str(user_id)}
 
 
 async def test_validate_expired_session(db_session):
-    token, _ = await auth_service.signup(
-        "exp@test.com", "password123", db_session
+    await _signup_and_verify(
+        db_session, "exp@test.com", "password123"
     )
+    login = await auth_service.login("exp@test.com", "password123", db_session)
+    token = login["token"]
     # Age the session directly in DB
     await db_session.execute(
         update(Session)
@@ -141,9 +191,11 @@ async def test_validate_invalid_token(db_session):
 # ─────────────────────── logout ─────────────────────────────────────────
 
 async def test_logout_deletes_session(db_session):
-    token, user_id = await auth_service.signup(
-        "out@test.com", "password123", db_session
+    user_id = await _signup_and_verify(
+        db_session, "out@test.com", "password123"
     )
+    login = await auth_service.login("out@test.com", "password123", db_session)
+    token = login["token"]
     await auth_service.logout(token, db_session)
 
     result = await db_session.execute(
@@ -162,7 +214,7 @@ async def test_logout_deletes_session(db_session):
 
 async def test_forgot_password_happy_invalidates_prior(db_session, mock_resend):
     await auth_service.signup("forgot@test.com", "password123", db_session)
-    # Reset mock after signup — signup now sends a welcome email.
+    # Reset mock after signup — signup now sends a verification email.
     # This test asserts only on forgot_password dispatch behavior.
     mock_resend.reset_mock()
 
@@ -206,13 +258,14 @@ async def test_forgot_password_dispatch_failure_does_not_propagate(
     Sink-level behavior (retry count, DLQ writes, Sentry gate, log
     redaction) is covered in tests/test_email_task.py — this test
     asserts only the auth_service boundary contract."""
+    await auth_service.signup("rerr@test.com", "password123", db_session)
+    mock_resend.reset_mock()
     mock_resend.side_effect = resend.exceptions.ResendError(
         code=401,
         message="API key is invalid",
         suggested_action="Use a valid API key",
         error_type="authentication_error",
     )
-    await auth_service.signup("rerr@test.com", "password123", db_session)
 
     # Must NOT raise despite Resend failure
     await auth_service.forgot_password("rerr@test.com", db_session)
@@ -236,9 +289,10 @@ async def test_reset_password_full_cascade(db_session, mock_resend):
        (b) all sessions for user deleted
        (c) reset token marked used
     """
-    old_token, user_id = await auth_service.signup(
+    user_id = await auth_service.signup(
         "reset@test.com", "oldpassword", db_session
     )
+    await auth_service.issue_session(user_id, db_session)
     await auth_service.forgot_password("reset@test.com", db_session)
 
     # Fetch the fresh reset token
@@ -268,7 +322,12 @@ async def test_reset_password_full_cascade(db_session, mock_resend):
     assert new_hash != old_hash
     assert new_hash.startswith("$2b$")
 
-    # (b) all sessions deleted (old signup session should be gone)
+    verified_result = await db_session.execute(
+        select(User.email_verified_at).where(User.id == user_id)
+    )
+    assert verified_result.scalar_one() is not None
+
+    # (b) all sessions deleted
     sessions = await db_session.execute(
         select(Session).where(Session.user_id == user_id)
     )
