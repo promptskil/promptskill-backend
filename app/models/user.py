@@ -42,6 +42,7 @@ class User(Base):
     updated_at = Column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    email_verified_at = Column(DateTime, nullable=True)
 
     # Subscription state (columns added by migration b2c3d4e5f6a7).
     # Declared here so the ORM can read/gate on subscription status.
@@ -65,6 +66,11 @@ class User(Base):
     )
     reset_tokens = relationship(
         "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    email_verification_tokens = relationship(
+        "EmailVerificationToken",
         back_populates="user",
         cascade="all, delete-orphan",
     )

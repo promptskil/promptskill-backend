@@ -4,14 +4,15 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import bearer_scheme
+from app.config import settings
 from app.database import get_db
 from app.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     ResetPasswordRequest,
+    SignupResponse,
     SignupRequest,
-    TokenResponse,
     ValidateRequest,
 )
 from app.services import auth_service
@@ -19,13 +20,13 @@ from app.services import auth_service
 router = APIRouter()
 
 
-@router.post("/signup", response_model=TokenResponse)
+@router.post("/signup", response_model=SignupResponse)
 async def signup(
     body: SignupRequest,
     db: AsyncSession = Depends(get_db),
-) -> TokenResponse:
-    token, user_id = await auth_service.signup(body.email, body.password, db)
-    return TokenResponse(token=token, user_id=user_id)
+) -> SignupResponse:
+    user_id = await auth_service.signup(body.email, body.password, db)
+    return SignupResponse(user_id=user_id)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -97,3 +98,13 @@ async def reset_password_redirect(token: str) -> RedirectResponse:
     Falls back to a plain HTML message on desktop where promptskill:// cannot open."""
     deep_link = f"promptskill://reset-password?token={token}"
     return RedirectResponse(url=deep_link, status_code=302)
+
+
+@router.get("/verify-email")
+async def verify_email(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    await auth_service.verify_email(token, db)
+    web_base = settings.WEB_BASE_URL.rstrip("/")
+    return RedirectResponse(url=f"{web_base}/login?verified=1", status_code=302)
