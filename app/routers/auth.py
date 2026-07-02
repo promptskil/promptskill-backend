@@ -11,8 +11,8 @@ from app.schemas import (
     LoginRequest,
     LoginResponse,
     ResetPasswordRequest,
-    SignupResponse,
     SignupRequest,
+    SignupResponse,
     ValidateRequest,
 )
 from app.services import auth_service
