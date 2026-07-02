@@ -6,6 +6,7 @@ Covers the new login contract:
   - admin/employee → their role + their business_id
   - a disabled org blocks BOTH admin and employee at login (403)
 """
+from datetime import datetime
 from uuid import uuid4
 
 import bcrypt
@@ -29,6 +30,7 @@ async def _make_user(db_session, account_type=AccountType.individual):
         email=f"acct-{uuid4().hex[:8]}@t.local",
         password_hash=_hash(_PW),
         account_type=account_type,
+        email_verified_at=datetime.utcnow(),
     )
     db_session.add(u)
     await db_session.commit()

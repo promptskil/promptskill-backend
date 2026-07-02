@@ -8,7 +8,8 @@ from httpx import ASGITransport, AsyncClient
 from app.database import get_db
 from app.main import app
 from app.models.user import AccountType, User
-from app.services import auth_service, billing_service
+from app.services import billing_service
+from tests.auth_helpers import signup_verify_login
 
 
 def _user(**kw) -> User:
@@ -92,8 +93,8 @@ async def test_user_not_found_raises(db_session, stripe_mocks):
 
 
 async def test_checkout_endpoint_returns_url(client, db_session, stripe_mocks):
-    token, _ = await auth_service.signup(
-        f"{uuid4()}@test.com", "password123", db_session
+    token, _ = await signup_verify_login(
+        client, db_session, f"{uuid4()}@test.com"
     )
     r = await client.post(
         "/billing/checkout", headers={"Authorization": f"Bearer {token}"}
