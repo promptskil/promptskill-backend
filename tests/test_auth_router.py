@@ -19,6 +19,7 @@ Gate coverage (from /build-checklist Step 3.3b):
   2. Full forgot → reset → login cycle
   3. 401 without token on protected endpoint (logout)
 """
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import pytest_asyncio
@@ -27,7 +28,8 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.main import app
-from app.models import PasswordResetToken, User
+from app.models import EmailVerificationToken, PasswordResetToken, User
+from tests.auth_helpers import login_verified_user
 
 
 # ─────────────────────── async client fixture ───────────────────────────
@@ -56,6 +58,16 @@ async def client(db_session):
 
 # ─────────────────────── Gate 1: signup → validate → logout ─────────────
 
+
+async def _verification_token_for(db_session, email: str) -> EmailVerificationToken:
+    result = await db_session.execute(
+        select(EmailVerificationToken)
+        .join(User, User.id == EmailVerificationToken.user_id)
+        .where(User.email == email)
+    )
+    return result.scalar_one()
+
+
 async def test_signup_validate_logout_cycle(client, db_session):
     """Full happy-path lifecycle through the HTTP boundary."""
     # 1. signup
@@ -65,13 +77,16 @@ async def test_signup_validate_logout_cycle(client, db_session):
     )
     assert r.status_code == 200
     body = r.json()
-    assert "token" in body and len(body["token"]) > 100
+    assert body["email_verification_required"] is True
+    assert "token" not in body
     assert "user_id" in body
-    token = body["token"]
     user_id = body["user_id"]
     UUID(user_id)  # shape check
+    token = await login_verified_user(
+        client, db_session, "router-cycle@test.com", user_id
+    )
 
-    # 2. validate — returns 200 with {valid:True, user_id}
+    # 2. validate - returns 200 with {valid:True, user_id}
     r = await client.post("/auth/validate", json={"token": token})
     assert r.status_code == 200
     assert r.json() == {"valid": True, "user_id": user_id}
@@ -98,6 +113,58 @@ async def test_signup_duplicate_email_returns_409(client):
     r2 = await client.post("/auth/signup", json=payload)
     assert r2.status_code == 409
     assert r2.json()["detail"]["error"] == "email_exists"
+
+
+async def test_verify_email_redirects_and_marks_user_verified(
+    client, db_session
+):
+    email = "router-verify@test.com"
+    r = await client.post(
+        "/auth/signup",
+        json={"email": email, "password": "password123"},
+    )
+    assert r.status_code == 200
+
+    verification_token = await _verification_token_for(db_session, email)
+
+    r = await client.get(
+        f"/auth/verify-email?token={verification_token.token}"
+    )
+    assert r.status_code == 302
+    assert r.headers["location"].endswith("/login?verified=1")
+
+    await db_session.refresh(verification_token)
+    result = await db_session.execute(select(User).where(User.email == email))
+    user = result.scalar_one()
+    assert user.email_verified_at is not None
+    assert verification_token.used_at is not None
+
+
+async def test_verify_email_invalid_token_returns_400(client):
+    r = await client.get(
+        "/auth/verify-email?token=00000000-0000-0000-0000-000000000000"
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"] == "token_invalid"
+
+
+async def test_verify_email_expired_token_returns_400(client, db_session):
+    email = "router-expired@test.com"
+    r = await client.post(
+        "/auth/signup",
+        json={"email": email, "password": "password123"},
+    )
+    assert r.status_code == 200
+
+    verification_token = await _verification_token_for(db_session, email)
+    verification_token.expires_at = datetime.utcnow() - timedelta(minutes=1)
+    await db_session.commit()
+
+    r = await client.get(
+        f"/auth/verify-email?token={verification_token.token}"
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"] == "token_expired"
 
 
 async def test_login_invalid_credentials_returns_401(client):

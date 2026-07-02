@@ -26,8 +26,12 @@ from unittest.mock import patch
 import pytest
 import resend
 
-from app.tasks import email_task
+from app.tasks import email_task, verification_email_task
 from app.tasks.email_task import _redact_email, send_reset_email_task
+from app.tasks.verification_email_task import (
+    _redact_email as _redact_verification_email,
+    send_verification_email_task,
+)
 
 
 def _resend_error():
@@ -69,6 +73,55 @@ def test_send_reset_email_includes_idempotency_key(mock_resend):
     assert "Idempotency-Key" in call_payload["headers"], \
         "Idempotency-Key header not passed to Resend"
     assert len(call_payload["headers"]["Idempotency-Key"]) > 0
+
+
+def test_send_verification_email_includes_idempotency_key_and_verify_link(
+    mock_resend,
+):
+    send_verification_email_task.delay("verify@test.com", "verify-token")
+
+    payload = mock_resend.call_args.args[0]
+    assert payload["to"] == "verify@test.com"
+    assert payload["subject"] == "Verify your Vaine email"
+    assert "/auth/verify-email?token=verify-token" in payload["html"]
+    assert "headers" in payload
+    assert "Idempotency-Key" in payload["headers"]
+    assert len(payload["headers"]["Idempotency-Key"]) > 0
+
+
+def test_send_verification_email_task_retries_3_times(mock_resend):
+    mock_resend.side_effect = _resend_error()
+
+    with patch.object(verification_email_task, "_dlq_postgres_insert"), \
+         patch.object(verification_email_task, "_dlq_redis_push"):
+        send_verification_email_task.delay("verify-retry@test.com", "tok")
+
+    assert mock_resend.call_count == 4
+
+
+def test_verification_dlq_sinks_receive_payload_on_exhaustion(mock_resend):
+    mock_resend.side_effect = _resend_error()
+
+    with patch.object(
+        verification_email_task, "_dlq_postgres_insert"
+    ) as pg, patch.object(
+        verification_email_task, "_dlq_redis_push"
+    ) as rd:
+        send_verification_email_task.delay("verify-dlq@test.com", "tok")
+
+    assert pg.call_count == 1
+    kwargs = pg.call_args.kwargs
+    assert kwargs["task_name"] == "send_verification_email_task"
+    assert kwargs["recipient"] == "verify-dlq@test.com"
+    assert kwargs["retries_exhausted"] == 3
+    assert kwargs["error"]
+    assert kwargs["task_id"]
+
+    assert rd.call_count == 1
+    payload = rd.call_args.args[0]
+    assert payload["recipient_redacted"] == "v***@test.com"
+    assert payload["task_id"]
+    assert payload["error"]
 
 
 # ─────────────────────── DLQ sinks on exhaustion ────────────────
@@ -196,3 +249,17 @@ def test_recipient_redacted_in_retry_warning(mock_resend, caplog):
 )
 def test_redact_email_helper(raw, expected):
     assert _redact_email(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("jeremie@gmail.com", "j***@gmail.com"),
+        ("a@b.co", "a***@b.co"),
+        ("", "***"),
+        ("no-at-sign", "***"),
+        ("@only-domain.com", "***@only-domain.com"),
+    ],
+)
+def test_verification_redact_email_helper(raw, expected):
+    assert _redact_verification_email(raw) == expected

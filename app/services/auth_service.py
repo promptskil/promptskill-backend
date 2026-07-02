@@ -12,12 +12,12 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import PasswordResetToken, Session, User
+from app.models import EmailVerificationToken, PasswordResetToken, Session, User
 from app.models.business import Business, BusinessStatus
 from app.models.business_member import BusinessMember
 from app.models.user import AccountType, UserStatus
 from app.tasks.email_task import send_reset_email_task
-from app.tasks.welcome_email_task import send_welcome_email_task
+from app.tasks.verification_email_task import send_verification_email_task
 
 # Resend client configuration
 resend.api_key = settings.RESEND_API_KEY
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 SESSION_LIFETIME_DAYS = 30
 RESET_TOKEN_LIFETIME_HOURS = 1
+EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS = 24
 BCRYPT_ROUNDS = 12  # Production value; tests monkeypatch to 4 for speed.
 
 
@@ -73,7 +74,33 @@ def _session_expiry() -> datetime:
 
 # ──────────────────────────── signup ─────────────────────────────
 
-async def signup(email: str, password: str, db: AsyncSession) -> tuple[str, UUID]:
+async def _create_email_verification_token(
+    user_id: UUID,
+    db: AsyncSession,
+) -> str:
+    token_str = str(uuid4())
+    now_naive = datetime.utcnow()
+
+    await db.execute(
+        update(EmailVerificationToken)
+        .where(EmailVerificationToken.user_id == user_id)
+        .where(EmailVerificationToken.used_at.is_(None))
+        .where(EmailVerificationToken.expires_at > now_naive)
+        .values(used_at=now_naive)
+    )
+
+    db.add(
+        EmailVerificationToken(
+            user_id=user_id,
+            token=token_str,
+            expires_at=now_naive
+            + timedelta(hours=EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS),
+        )
+    )
+    return token_str
+
+
+async def signup(email: str, password: str, db: AsyncSession) -> UUID:
     existing = await db.execute(
         select(User).where(User.email == email)
     )
@@ -91,21 +118,69 @@ async def signup(email: str, password: str, db: AsyncSession) -> tuple[str, UUID
     db.add(user)
     await db.flush()  # populate user.id
 
-    token = _issue_jwt(user.id)
-    session = Session(
-        user_id=user.id,
-        token=token,
-        expires_at=_session_expiry(),
-    )
-    db.add(session)
+    verification_token = await _create_email_verification_token(user.id, db)
+    user_id = user.id
     await db.commit()
 
-    # post-commit: user and session are durable before email dispatch.
+    # post-commit: user and verification token are durable before dispatch.
     # Broker errors surface as 500 by design — silent failure would
     # hide system-wide email outages.
-    send_welcome_email_task.delay(email)
+    send_verification_email_task.delay(email, verification_token)
 
-    return token, user.id
+    return user_id
+
+
+async def verify_email(token: str, db: AsyncSession) -> None:
+    result = await db.execute(
+        select(EmailVerificationToken).where(
+            EmailVerificationToken.token == token
+        )
+    )
+    verification_token = result.scalar_one_or_none()
+
+    if not verification_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "token_invalid",
+                "message": "This verification link is invalid.",
+            },
+        )
+
+    user = await db.get(User, verification_token.user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "token_invalid",
+                "message": "This verification link is invalid.",
+            },
+        )
+
+    if verification_token.used_at is not None:
+        if user.email_verified_at is not None:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "token_used",
+                "message": "This verification link has already been used.",
+            },
+        )
+
+    now_naive = datetime.utcnow()
+    if verification_token.expires_at < now_naive:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "token_expired",
+                "message": "This verification link has expired.",
+            },
+        )
+
+    user.email_verified_at = now_naive
+    verification_token.used_at = now_naive
+    await db.commit()
 
 
 # ───────────────────────────── login ─────────────────────────────
@@ -128,6 +203,15 @@ async def authenticate(
             detail={
                 "error": "invalid_credentials",
                 "message": "Incorrect email or password",
+            },
+        )
+
+    if user.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "email_not_verified",
+                "message": "Please verify your email before logging in.",
             },
         )
 
@@ -357,7 +441,7 @@ async def reset_password(
     await db.execute(
         update(User)
         .where(User.id == reset_token.user_id)
-        .values(password_hash=password_hash)
+        .values(password_hash=password_hash, email_verified_at=now_naive)
     )
 
     # Mark token used — naive UTC, matches schema
