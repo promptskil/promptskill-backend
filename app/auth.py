@@ -53,6 +53,22 @@ async def get_current_user(
             detail="Invalid or expired token",
         )
 
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    if user.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "email_not_verified",
+                "message": "Please verify your email before continuing.",
+            },
+        )
+
     request.state.user_id = user_id
     return user_id
 

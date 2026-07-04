@@ -25,6 +25,7 @@ from app.database import get_db
 from app.main import app
 from app.models.prompt import Prompt
 from app.services.generate_service import load_model_registry
+from tests.auth_helpers import signup_verify_login
 
 load_model_registry()
 
@@ -44,15 +45,11 @@ async def client(db_session):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def auth_token(client):
+async def auth_token(client, db_session):
     """Sign up a fresh user and return (token, user_id)."""
-    r = await client.post(
-        "/auth/signup",
-        json={"email": "gen-router@test.com", "password": "password123"},
+    return await signup_verify_login(
+        client, db_session, "gen-router@test.com"
     )
-    assert r.status_code == 200
-    body = r.json()
-    return body["token"], body["user_id"]
 
 
 @pytest.fixture
@@ -285,17 +282,17 @@ async def test_invalid_business_id_returns_400(
 
 # ─────────────────────── Paywall gate (PAYWALL_ENABLED) ─────────────────
 
-async def test_no_subscription_returns_402(client, mock_anthropic_ok, monkeypatch):
+async def test_no_subscription_returns_402(
+    client, db_session, mock_anthropic_ok, monkeypatch
+):
     """With the paywall switched on, an individual user without an active
     subscription is blocked from /generate."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "PAYWALL_ENABLED", True)
-    s = await client.post(
-        "/auth/signup",
-        json={"email": f"{uuid4()}@test.com", "password": "password123"},
+    token, _ = await signup_verify_login(
+        client, db_session, f"{uuid4()}@test.com"
     )
-    token = s.json()["token"]
     r = await client.post(
         "/generate",
         json={"model": "claude", "topic": "x"},

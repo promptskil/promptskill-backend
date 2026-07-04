@@ -18,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.database import get_db
 from app.main import app
+from tests.auth_helpers import signup_verify_login
 
 
 # ─────────────────────── fixtures ───────────────────────────────────────
@@ -34,21 +35,15 @@ async def client(db_session):
     app.dependency_overrides.clear()
 
 
-async def _signup(client, email):
-    r = await client.post(
-        "/auth/signup",
-        json={"email": email, "password": "password123"},
-    )
-    assert r.status_code == 200, r.text
-    b = r.json()
-    return b["token"], b["user_id"]
+async def _signup(client, db_session, email):
+    return await signup_verify_login(client, db_session, email)
 
 
 # ─────────────────────── GET /user ──────────────────────────────────────
 
-async def test_get_user_happy_path(client):
+async def test_get_user_happy_path(client, db_session):
     email = f"getme-{uuid4().hex[:8]}@t.com"
-    token, user_id = await _signup(client, email)
+    token, user_id = await _signup(client, db_session, email)
 
     r = await client.get(
         "/user",
@@ -67,8 +62,10 @@ async def test_get_user_no_auth_returns_401(client):
 
 # ─────────────────────── PATCH /user/email ──────────────────────────────
 
-async def test_update_email_happy_path(client):
-    token, user_id = await _signup(client, f"old-{uuid4().hex[:8]}@t.com")
+async def test_update_email_happy_path(client, db_session):
+    token, user_id = await _signup(
+        client, db_session, f"old-{uuid4().hex[:8]}@t.com"
+    )
     new_email = f"new-{uuid4().hex[:8]}@t.com"
 
     r = await client.patch(
@@ -90,13 +87,15 @@ async def test_update_email_no_auth_returns_401(client):
     assert r.status_code == 401
 
 
-async def test_update_email_duplicate_returns_409(client):
+async def test_update_email_duplicate_returns_409(client, db_session):
     # user_b owns a particular email
     email_b = f"taken-{uuid4().hex[:8]}@t.com"
-    await _signup(client, email_b)
+    await _signup(client, db_session, email_b)
 
     # user_a tries to steal it
-    token_a, _ = await _signup(client, f"thief-{uuid4().hex[:8]}@t.com")
+    token_a, _ = await _signup(
+        client, db_session, f"thief-{uuid4().hex[:8]}@t.com"
+    )
     r = await client.patch(
         "/user/email",
         json={"email": email_b},
@@ -105,8 +104,10 @@ async def test_update_email_duplicate_returns_409(client):
     assert r.status_code == 409, r.text
 
 
-async def test_update_email_malformed_returns_400(client):
-    token, _ = await _signup(client, f"bad-{uuid4().hex[:8]}@t.com")
+async def test_update_email_malformed_returns_400(client, db_session):
+    token, _ = await _signup(
+        client, db_session, f"bad-{uuid4().hex[:8]}@t.com"
+    )
     r = await client.patch(
         "/user/email",
         json={"email": "not-an-email"},
