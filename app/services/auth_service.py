@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import _subscription_active
 from app.config import settings
 from app.models import EmailVerificationToken, PasswordResetToken, Session, User
 from app.models.business import Business, BusinessStatus
@@ -282,6 +283,12 @@ async def issue_session(user_id: UUID, db: AsyncSession) -> str:
     return token
 
 
+def _checkout_required(user: User) -> bool:
+    if user.account_type != AccountType.individual:
+        return False
+    return not _subscription_active(user)
+
+
 async def login(email: str, password: str, db: AsyncSession) -> dict:
     user, business_id = await authenticate(email, password, db)
     token = await issue_session(user.id, db)
@@ -290,6 +297,7 @@ async def login(email: str, password: str, db: AsyncSession) -> dict:
         "user_id": user.id,
         "account_type": user.account_type.value,
         "business_id": business_id,
+        "checkout_required": _checkout_required(user),
     }
 
 
@@ -316,6 +324,7 @@ async def business_login(email: str, password: str, db: AsyncSession) -> dict:
         "user_id": user.id,
         "account_type": user.account_type.value,
         "business_id": business_id,
+        "checkout_required": False,
     }
 
 
