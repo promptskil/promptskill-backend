@@ -19,6 +19,7 @@ class LoginResponse(BaseModel):
     user_id: UUID
     account_type: str  # individual | admin | employee
     business_id: UUID | None
+    checkout_required: bool = False
 
 
 class GenerateResponse(BaseModel):
