@@ -13,6 +13,7 @@ Gate coverage (from /build-checklist Step 6.3):
   - Empty topic / topic > 500 → 400
   - 61st request within hour → 429 (keyed on user_id)
 """
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -24,6 +25,7 @@ from sqlalchemy import select
 from app.database import get_db
 from app.main import app
 from app.models.prompt import Prompt
+from app.models.user import User
 from app.services.generate_service import load_model_registry
 from tests.auth_helpers import signup_verify_login
 
@@ -290,9 +292,14 @@ async def test_no_subscription_returns_402(
     from app.config import settings
 
     monkeypatch.setattr(settings, "PAYWALL_ENABLED", True)
-    token, _ = await signup_verify_login(
+    token, user_id = await signup_verify_login(
         client, db_session, f"{uuid4()}@test.com"
     )
+    user = await db_session.get(User, UUID(user_id))
+    user.subscription_status = "expired"
+    user.subscription_expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    await db_session.commit()
+
     r = await client.post(
         "/generate",
         json={"model": "claude", "topic": "x"},

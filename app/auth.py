@@ -92,7 +92,10 @@ def _subscription_active(user: User) -> bool:
     if user.subscription_status not in ACTIVE_SUBSCRIPTION_STATUSES:
         return False
     if user.subscription_expires_at is not None:
-        return user.subscription_expires_at > datetime.now(timezone.utc)
+        expires_at = user.subscription_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return expires_at > datetime.now(timezone.utc)
     return True
 
 
