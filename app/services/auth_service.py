@@ -115,7 +115,16 @@ async def signup(email: str, password: str, db: AsyncSession) -> UUID:
         )
 
     password_hash = await _hash_password(password)
-    user = User(email=email, password_hash=password_hash)
+    user = User(
+        email=email,
+        password_hash=password_hash,
+        subscription_status="trialing",
+        subscription_expires_at=(
+            datetime.now(timezone.utc)
+            + timedelta(days=settings.STRIPE_TRIAL_DAYS)
+        ),
+        subscription_source="signup_trial",
+    )
     db.add(user)
     await db.flush()  # populate user.id
 
@@ -342,7 +351,13 @@ async def validate_token(token: str, db: AsyncSession) -> dict:
     )
     session = result.scalar_one_or_none()
     if session:
-        return {"valid": True, "user_id": str(session.user_id)}
+        user = await db.get(User, session.user_id)
+        if user is None:
+            return {"valid": False, "reason": "invalid"}
+        response = {"valid": True, "user_id": str(session.user_id)}
+        if _checkout_required(user):
+            response["checkout_required"] = True
+        return response
 
     expired = await db.execute(
         select(Session).where(Session.token == token)
