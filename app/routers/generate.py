@@ -17,7 +17,6 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     Header,
     HTTPException,
@@ -28,12 +27,10 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_active_subscription
-from app.config import settings
 from app.database import get_db
 from app.rate_limit import limiter
 from app.schemas import GenerateRequest, GenerateResponse
 from app.services import business_service, generate_service
-from app.services.profile_service import recompute_profile
 
 router = APIRouter()
 
@@ -44,7 +41,6 @@ async def generate(
     request: Request,  # required positional for slowapi key-func
     response: Response,  # REQUIRED by slowapi when headers_enabled=True
     body: GenerateRequest,
-    background_tasks: BackgroundTasks,
     x_app_version: str | None = Header(default=None, alias="x-app-version"),
     x_business_id: str | None = Header(default=None, alias="x-business-id"),
     user_id: UUID = Depends(require_active_subscription),
@@ -83,11 +79,6 @@ async def generate(
         business_id=business_id,
         refinement=body.refinement,
     )
-
-    # Learn AFTER the response — per-user understanding recompute on its own
-    # session (request db is closed post-response). Caller-scoped by user_id.
-    if settings.UNDERSTANDING_ENABLED:
-        background_tasks.add_task(recompute_profile, user_id)
 
     return GenerateResponse(
         prompt_id=UUID(result["prompt_id"]),
