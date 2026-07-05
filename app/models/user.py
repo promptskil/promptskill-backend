@@ -83,10 +83,3 @@ class User(Base):
     business_invites_sent = relationship(
         "BusinessInvite", back_populates="invited_by", passive_deletes=True
     )
-    profile = relationship(
-        "UserProfile",
-        back_populates="user",
-        uselist=False,
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
