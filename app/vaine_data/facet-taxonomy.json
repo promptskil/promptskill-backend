@@ -1,0 +1,61 @@
+{
+  "version": "v2",
+  "status": "Re-frozen on the 1,025-record corpus (vaine-dataset.train.jsonl + vaine-dataset.eval.jsonl), Phase 0.4c (2026-07-06). Supersedes v1 (induced from 228 raw topics). Facet values reordered to real corpus frequency; domain enum corrected (5 missing domains added); tone changed categorical -> open (138 distinct observed).",
+  "note": "Each facet ships a detector for the gap metric. class_boundary is deterministic (length), independent of facets. Categorical values ordered by real corpus frequency.",
+  "facets": [
+    {
+      "facet": "goal",
+      "type": "open",
+      "detector": "rewrite states an explicit task/objective",
+      "class_role": "core",
+      "observed": ["write", "generate", "explain", "create", "identify", "list", "analyze", "build", "find", "implement", "calculate", "rewrite", "summarize", "research", "fix", "diagnose", "develop", "translate", "draft", "compare"]
+    },
+    {
+      "facet": "artifact",
+      "type": "categorical",
+      "values": ["guide", "analysis", "code", "other", "copy", "report", "plan", "resume", "table", "message", "calculation", "email", "pitch", "summary", "prompt"],
+      "detector": "rewrite names the output artifact",
+      "class_role": "core",
+      "note": "ordered by real corpus frequency; 'prompt' is the core Vaine artifact (rare in the public WildChat corpus but central in real Vaine usage) - retained. 'other' is a large catch-all. Dropped from v1: leaked domain-values (content_social, research) that the labeler mis-tagged as artifacts."
+    },
+    {
+      "facet": "audience",
+      "type": "open",
+      "detector": "rewrite specifies who it is for",
+      "class_role": "complex-only",
+      "observed": ["academic readers", "social media followers", "instagram followers", "investors", "hiring managers", "recruiters", "youtube viewers", "general readers", "phd admissions committee", "beginners", "business owners"]
+    },
+    {
+      "facet": "tone",
+      "type": "open",
+      "detector": "rewrite sets a tone/register",
+      "class_role": "complex-only",
+      "note": "v1 categorical -> v2 open: 138 distinct tone values observed in the corpus. Canonical top-list kept for normalization.",
+      "observed": ["professional", "academic", "formal", "casual", "persuasive", "promotional", "informational", "engaging", "neutral", "friendly", "technical", "empathetic"]
+    },
+    {
+      "facet": "constraints",
+      "type": "open",
+      "detector": "rewrite states length/format/limits, a word cap ('15 words'), 'compress', 'search internet first', or 'measure against <reference>'",
+      "class_role": "complex-only"
+    },
+    {
+      "facet": "domain",
+      "type": "categorical",
+      "values": ["technical", "content_social", "research", "business", "finance", "marketing", "general", "jobs", "startups", "personal", "real-estate", "entrepreneurship", "career"],
+      "detector": "rewrite anchors a domain",
+      "class_role": "complex-only",
+      "note": "ordered by real corpus frequency; technical leads. The 9 target domains: startups, entrepreneurship, research, jobs, marketing, content_social, finance, business, technical. general/personal/real-estate/career are off-target diversity (small, retained per Option A)."
+    },
+    {
+      "facet": "success_criteria",
+      "type": "open",
+      "detector": "rewrite states what a good result looks like",
+      "class_role": "complex-only",
+      "note": "sparse in the corpus; flywheel to populate"
+    }
+  ],
+  "class_boundary_max_chars": 120,
+  "class_boundary": "simple = input length <= 120 characters; complex = input length > 120 characters. VALIDATED on the 1,025 corpus (0.4c): simple n=506 median 64 (max 120), complex n=519 median 223 (min 121) - clean separation. Rationale (Jeremie, 2026-07-05): <=120 chars cannot carry enough detail to specify constraints, so it is simple; >120 provides detail, so it is complex. DETERMINISTIC - the Classifier is a length check, no ML model. Facets are tagged independently (descriptive); class is purely length.",
+  "fallback": "if goal or artifact cannot be detected -> under-specified; route to review, do not train on it"
+}

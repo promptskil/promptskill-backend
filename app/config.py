@@ -29,5 +29,12 @@ class Settings(BaseSettings):
     STRIPE_TRIAL_DAYS: int = 7  # free-trial length (Decision 6a)
     PAYWALL_ENABLED: bool = False  # gate /generate on individual subscription
 
+    # --- Vaine engine (Phase 2.1); flags default-safe ---
+    TOGETHER_API_KEY: str = ""  # Together AI; set in .env / Railway
+    VAINE_BASE_URL: str = "https://api.together.xyz/v1"  # serving endpoint
+    VAINE_MODEL: str = ""  # fine-tune id; set after Phase 4.2
+    VAINE_ENABLED: bool = False  # master flag, default OFF (D-3)
+    VAINE_LEARNER_ENABLED: bool = False  # flywheel (Phase 8); off
+
 
 settings = Settings()
