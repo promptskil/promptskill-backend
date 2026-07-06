@@ -1,0 +1,42 @@
+{
+  "model": "claude",
+  "version": "v1 (provisional)",
+  "status": "G1 rule profile — first model. Strength SET maps base-lexicon keys -> per-model strong values; format_template is the deterministic structure applied AFTER the Strengthener. Strong words confirmed by Jeremie 2026-07-05.",
+  "note": "Keys must match base-lexicon.mock.json (BL3: keys model-agnostic, strong values live here). The Strengthener substitutes only on a key + guard match (BL2); strip_only terms are removed, not replaced (no safe 1:1 swap).",
+  "strength_set": {
+    "good": "rigorous",
+    "nice": "refined",
+    "big": "substantial",
+    "make": "craft",
+    "help": "guide",
+    "get": "obtain",
+    "clear": "precise",
+    "short": "concise",
+    "simple": "straightforward",
+    "write": "compose",
+    "cover": "address",
+    "list": "enumerate",
+    "keep": "maintain",
+    "warm": "heartfelt",
+    "personal": "tailored",
+    "friendly": "approachable",
+    "exciting": "compelling",
+    "catchy": "memorable",
+    "strong": "decisive",
+    "practical": "actionable",
+    "best": "optimal",
+    "fast": "rapid",
+    "some": "specific",
+    "a lot": "substantially",
+    "maybe": "likely"
+  },
+  "strip_only": ["very", "really", "kind of", "thing"],
+  "format_template": {
+    "version": "v1-minimal",
+    "rules": [
+      "Present the content as one clean instruction; append constraints as a trailing sentence.",
+      "Strip filler; no preamble, no markdown scaffolding in v1.",
+      "Preserve the Vaine Module's content verbatim except the strength substitutions."
+    ]
+  }
+}
