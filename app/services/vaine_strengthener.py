@@ -29,7 +29,7 @@ def strengthen(text: str, profile: dict, lexicon: dict) -> str:
     strength = profile.get("strength_set", {})
     strip = {w.lower() for w in profile.get("strip_only", [])}
     pos = {e["base_term"].lower(): e["pos"] for e in lexicon.get("entries", [])}
-    # v1 gate: substitute only adjectives; verbs, nouns, quantifier phrases pass through.
+    # v1 gate: adjectives only; verbs/nouns/phrases pass through.
     sub = {k: v for k, v in strength.items() if pos.get(k.lower()) == "adjective"}
 
     out = text

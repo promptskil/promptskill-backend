@@ -16,7 +16,7 @@ _WORD = re.compile(r"[A-Za-z0-9']+")
 def format_prompt(text: str, profile: dict) -> str:
     """Apply the v1-minimal format: strip scaffolding, normalize whitespace."""
     out = _XML.sub(" ", text)                          # strip XML/pseudo-tags
-    out = re.sub(r"(?m)^\s*[#>\-\*\+]+\s*", "", out)   # strip line-leading md scaffolding
+    out = re.sub(r"(?m)^\s*[#>\-\*\+]+\s*", "", out)  # strip line-leading md
     out = re.sub(r"\n{3,}", "\n\n", out)               # collapse excess blank lines
     out = re.sub(r"[ \t]{2,}", " ", out)               # collapse runs of spaces
     out = re.sub(r"\s+([,.;:!?])", r"\1", out)         # tighten punctuation

@@ -10,7 +10,7 @@ is only a fallback default.
 """
 from __future__ import annotations
 
-SIMPLE_MAX_CHARS = 120  # fallback; canonical value is the taxonomy's class_boundary_max_chars
+SIMPLE_MAX_CHARS = 120  # fallback; canonical value lives in the taxonomy
 
 
 def threshold_from_taxonomy(taxonomy: dict) -> int:
