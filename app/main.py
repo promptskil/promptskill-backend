@@ -16,7 +16,7 @@ from app.routers import invite as invite_router
 from app.routers import stripe_webhook as stripe_webhook_router
 from app.routers import user as user_router
 from app.routers import webhooks as webhooks_router
-from app.services.generate_service import load_model_registry
+from app.services.generate_service import load_model_registry, load_vaine_data
 
 # Optional Sentry — guarded against placeholder DSN.
 # Integration imports are best-effort: if extras aren't installed or
@@ -82,6 +82,7 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 @app.on_event("startup")
 async def _load_registry_on_startup() -> None:
     load_model_registry()
+    load_vaine_data()
 
 
 # Routers

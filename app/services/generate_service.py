@@ -23,10 +23,12 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from pathlib import Path
 
 import celery.exceptions
+import httpx
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +67,12 @@ _REQUIRED_KEYS: tuple[str, ...] = (
 _RESERVED_VERSION = "fallback"
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+_VAINE_DIR = Path(__file__).resolve().parent.parent / "vaine_data"
+
+VAINE_LEXICON: dict = {}
+VAINE_TAXONOMY: dict = {}
+VAINE_RULE_PROFILES: dict[str, dict] = {}
 
 
 def load_model_registry() -> dict[str, dict]:
@@ -110,7 +118,7 @@ def load_model_registry() -> dict[str, dict]:
             )
 
         # Provider gate — must be a registered provider in model_clients
-        _VALID_PROVIDERS = ("anthropic", "openai", "gemini", "xai")
+        _VALID_PROVIDERS = ("anthropic", "openai", "gemini", "xai", "vaine")
         if config["provider"] not in _VALID_PROVIDERS:
             raise ValueError(
                 f"{path.name}: provider {config['provider']!r} "
@@ -127,6 +135,58 @@ def load_model_registry() -> dict[str, dict]:
         MODEL_REGISTRY[model] = config
 
     return MODEL_REGISTRY
+
+
+def load_vaine_data() -> None:
+    """Load Vaine lexicon, taxonomy, and per-model rule profiles on startup.
+
+    Mutates the module dicts in place so importers keep valid references.
+    Called on server start via the FastAPI startup hook in app/main.py.
+
+    Raises:
+        FileNotFoundError: if a data file is missing.
+        ValueError: if an artifact is missing its expected top-level key.
+        json.JSONDecodeError: if a file is not valid JSON.
+    """
+    VAINE_LEXICON.clear()
+    VAINE_LEXICON.update(
+        json.loads((_VAINE_DIR / "base-lexicon.json").read_text(encoding="utf-8"))
+    )
+    VAINE_TAXONOMY.clear()
+    VAINE_TAXONOMY.update(
+        json.loads((_VAINE_DIR / "facet-taxonomy.json").read_text(encoding="utf-8"))
+    )
+    VAINE_RULE_PROFILES.clear()
+    for path in sorted((_VAINE_DIR / "rule-profiles").glob("*.json")):
+        VAINE_RULE_PROFILES[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+
+    if "entries" not in VAINE_LEXICON:
+        raise ValueError("base-lexicon.json: missing 'entries'")
+    if "class_boundary_max_chars" not in VAINE_TAXONOMY:
+        raise ValueError("facet-taxonomy.json: missing 'class_boundary_max_chars'")
+    if not VAINE_RULE_PROFILES:
+        raise ValueError("vaine_data/rule-profiles/: no rule profiles found")
+    for name, rp in VAINE_RULE_PROFILES.items():
+        for key in ("strength_set", "strip_only", "format_template"):
+            if key not in rp:
+                raise ValueError(f"rule-profiles/{name}.json: missing {key!r}")
+
+
+def vaine_health_check(timeout_s: float = 30.0) -> tuple[bool, float]:
+    """Ping the Vaine/Together serving host; return (ok, elapsed_seconds).
+
+    Reachability + latency gate for the 30s ceiling. Does not require a
+    fine-tuned model — verifies the endpoint is live and responsive.
+    """
+    url = settings.VAINE_BASE_URL.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {settings.TOGETHER_API_KEY}"}
+    start = time.monotonic()
+    try:
+        resp = httpx.get(url, headers=headers, timeout=timeout_s)
+        elapsed = time.monotonic() - start
+        return (resp.status_code == 200 and elapsed <= timeout_s, elapsed)
+    except httpx.HTTPError:
+        return (False, time.monotonic() - start)
 
 
 def build_user_message(
