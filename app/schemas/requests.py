@@ -22,6 +22,11 @@ class ResendVerificationRequest(BaseModel):
     email: EmailStr
 
 
+class VerifyEmailCodeRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
+
+
 class ResetPasswordRequest(BaseModel):
     token: str
     password: str = Field(min_length=8, max_length=128)

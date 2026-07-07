@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, String
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -19,9 +19,10 @@ class EmailVerificationToken(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    token = Column(String, unique=True, nullable=False)
+    token = Column(String, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
+    attempts = Column(Integer, nullable=False, server_default="0")
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("User", back_populates="email_verification_tokens")
