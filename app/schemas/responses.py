@@ -25,6 +25,7 @@ class LoginResponse(BaseModel):
 class GenerateResponse(BaseModel):
     prompt_id: UUID
     prompt: str
+    metadata: dict | None = None  # Vaine path: {engine, class}; legacy: None
 
 
 class CheckoutResponse(BaseModel):
