@@ -89,7 +89,11 @@ async def test_signup_validate_logout_cycle(client, db_session):
     # 2. validate - returns 200 with {valid:True, user_id}
     r = await client.post("/auth/validate", json={"token": token})
     assert r.status_code == 200
-    assert r.json() == {"valid": True, "user_id": user_id}
+    assert r.json() == {
+        "valid": True,
+        "user_id": user_id,
+        "checkout_required": True,
+    }
 
     # 3. logout — 200 with Authorization bearer
     r = await client.post(
