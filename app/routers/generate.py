@@ -83,4 +83,5 @@ async def generate(
     return GenerateResponse(
         prompt_id=UUID(result["prompt_id"]),
         prompt=result["prompt"],
+        metadata=result.get("metadata"),
     )
