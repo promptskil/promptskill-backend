@@ -11,6 +11,7 @@ from app.schemas.requests import (
     SignupRequest,
     UpdateEmailRequest,
     ValidateRequest,
+    VerifyEmailCodeRequest,
 )
 from app.schemas.responses import (
     AcceptInviteResponse,
@@ -39,6 +40,7 @@ __all__ = [
     "ResendVerificationRequest",
     "ResetPasswordRequest",
     "ValidateRequest",
+    "VerifyEmailCodeRequest",
     "GenerateRequest",
     "FeedbackRequest",
     "UpdateEmailRequest",
