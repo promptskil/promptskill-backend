@@ -170,7 +170,11 @@ async def test_validate_valid_token(db_session):
     login = await auth_service.login("val@test.com", "password123", db_session)
     token = login["token"]
     result = await auth_service.validate_token(token, db_session)
-    assert result == {"valid": True, "user_id": str(user_id)}
+    assert result == {
+        "valid": True,
+        "user_id": str(user_id),
+        "checkout_required": True,
+    }
 
 
 async def test_validate_expired_session(db_session):
