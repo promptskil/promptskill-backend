@@ -193,6 +193,33 @@ async def verify_email(token: str, db: AsyncSession) -> None:
     await db.commit()
 
 
+# ─────────────────────── resend_verification ─────────────────────
+
+async def resend_verification(email: str, db: AsyncSession) -> None:
+    """Re-issue a verification email for an UNVERIFIED account.
+
+    Rule 1 (re-entry, unverified): a user who signed up but never clicked
+    the link reopens the app, enters their email, and the system must send
+    a fresh verification email — no access, no drift to Main.
+
+    No-op WITH NO SIGNAL if the email is unknown or already verified: the
+    caller always gets {success: true}, so this endpoint can neither
+    enumerate accounts nor reveal verification state. Reuses
+    _create_email_verification_token, which invalidates any prior unused
+    token before issuing the new one (single live token per user).
+    """
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if user is None or user.email_verified_at is not None:
+        return
+
+    verification_token = await _create_email_verification_token(user.id, db)
+    await db.commit()
+
+    # post-commit: token is durable before dispatch (mirrors signup).
+    send_verification_email_task.delay(user.email, verification_token)
+
+
 # ───────────────────────────── login ─────────────────────────────
 
 async def authenticate(
