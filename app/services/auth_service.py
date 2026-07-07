@@ -116,15 +116,12 @@ async def signup(email: str, password: str, db: AsyncSession) -> UUID:
         )
 
     password_hash = await _hash_password(password)
+    # Decision B: no card-less trial. New users have NO subscription
+    # (status NULL) -> checkout_required -> the paywall blocks /generate
+    # until Stripe grants trialing after the card is entered at checkout.
     user = User(
         email=email,
         password_hash=password_hash,
-        subscription_status="trialing",
-        subscription_expires_at=(
-            datetime.now(timezone.utc)
-            + timedelta(days=settings.STRIPE_TRIAL_DAYS)
-        ),
-        subscription_source="signup_trial",
     )
     db.add(user)
     await db.flush()  # populate user.id
