@@ -36,7 +36,7 @@ async def create_checkout_session(user_id: UUID, db: AsyncSession) -> str:
         subscription_data={"trial_period_days": settings.STRIPE_TRIAL_DAYS},
         # Card required up front even during the trial (Decision 6a).
         payment_method_collection="always",
-        success_url=f"{settings.WEB_BASE_URL}/onboarding?checkout=success",
+        success_url=f"{settings.WEB_BASE_URL}/?checkout=success",
         cancel_url=f"{settings.WEB_BASE_URL}/?checkout=cancel",
         client_reference_id=str(user.id),
     )
