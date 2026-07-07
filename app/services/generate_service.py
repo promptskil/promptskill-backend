@@ -207,6 +207,51 @@ async def vaine_generate(model: str, topic: str) -> dict:
     return {"prompt": format_prompt(strong, profile), "class": cls}
 
 
+async def _vaine_path(
+    model: str,
+    topic: str,
+    user_id: uuid.UUID,
+    app_version: str,
+    business_id: uuid.UUID | None,
+    db: AsyncSession,
+) -> dict:
+    """VAINE_ENABLED path: fine-tuned engine + deterministic tail, then the
+    shared INSERT. Failure maps to the degraded 504 posture (D-4).
+    """
+    try:
+        result = await asyncio.wait_for(
+            vaine_generate(model, topic), timeout=_GENERATE_TIMEOUT_SECONDS
+        )
+    except (vaine_engine.VaineInferenceError, asyncio.TimeoutError) as exc:
+        logger.error("vaine_generate_failed model=%s error=%r", model, str(exc))
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": "timeout",
+                "message": "Generation timed out. Try again or use a shorter topic.",
+            },
+        )
+    prompt_text = _strip_xml_tags(result["prompt"])
+    prompt = Prompt(
+        user_id=user_id,
+        model=model,
+        topic=topic,
+        prompt_text=prompt_text,
+        system_prompt_version=_VAINE_VERSION,
+        app_version=app_version,
+        feedback_vote=None,
+        business_id=business_id,
+    )
+    db.add(prompt)
+    await db.commit()
+    await db.refresh(prompt)
+    return {
+        "prompt_id": str(prompt.id),
+        "prompt": prompt_text,
+        "metadata": {"engine": "vaine", "class": result["class"]},
+    }
+
+
 def build_user_message(
     config: dict, topic: str, refinement: str | None = None
 ) -> str:
@@ -228,6 +273,7 @@ def build_user_message(
 _GENERATE_TIMEOUT_SECONDS = 30.0
 _CELERY_TIMEOUT_SECONDS = 28  # 2s buffer inside 30s global ceiling
 _MAX_TOKENS = 1000
+_VAINE_VERSION = "vaine-v1"  # system_prompt_version tag for the Vaine path
 
 
 async def generate_prompt(
@@ -248,6 +294,12 @@ async def generate_prompt(
     Spec: /full-stack-engineer L1478-1583.
     """
     config = MODEL_REGISTRY[model]  # validated by schema Literal
+
+    # Vaine path (flag-gated, dual-run). Legacy provider path below is untouched.
+    if settings.VAINE_ENABLED:
+        return await _vaine_path(
+            model, topic, user_id, app_version, business_id, db
+        )
 
     # Build user message — composes original topic + refinement (Layer 7 v2)
     user_message = build_user_message(config, topic, refinement)
