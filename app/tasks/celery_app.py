@@ -25,6 +25,7 @@ celery_app = Celery(
         "app.tasks.business_invite_email_task",
         "app.tasks.reconcile_task",
         "app.tasks.verification_email_task",
+        "app.tasks.learn_task",
     ],
 )
 
@@ -44,6 +45,10 @@ celery_app.conf.update(
         "daily-reconcile": {
             "task": "reconcile_subscriptions_task",
             "schedule": crontab(hour=3, minute=0),
+        },
+        "weekly-vaine-learn": {
+            "task": "vaine_learn_task",
+            "schedule": crontab(hour=1, minute=0, day_of_week=1),
         },
     },
 )
