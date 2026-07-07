@@ -4,7 +4,7 @@ Scope: locks Phase 3 service-layer behavior so Phase 4 Celery migration
 has a pass/fail criterion. All tests run against real Postgres via
 SAVEPOINT rollback (see conftest.py).
 
-Test inventory (22 functions, D1 minimal + 1 parametrized reset rejection):
+Test inventory (23 functions, D1 minimal + 1 parametrized reset rejection):
   1.  test_signup_happy_path
   2.  test_signup_duplicate_email_409
   3.  test_login_happy_path
@@ -27,6 +27,7 @@ Test inventory (22 functions, D1 minimal + 1 parametrized reset rejection):
   20. test_verify_email_code_wrong_increments_attempts
   21. test_verify_email_code_lockout_after_max_attempts
   22. test_verify_email_code_expired
+  23. test_new_user_login_requires_checkout
 """
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -76,6 +77,7 @@ async def test_signup_happy_path(db_session, mock_resend):
     assert user.id == user_id
     assert user.password_hash.startswith("$2b$")  # bcrypt marker
     assert user.email_verified_at is None
+    assert user.subscription_status is None
 
     # Signup does not issue a session until the email is verified.
     result = await db_session.execute(
@@ -168,7 +170,11 @@ async def test_validate_valid_token(db_session):
     login = await auth_service.login("val@test.com", "password123", db_session)
     token = login["token"]
     result = await auth_service.validate_token(token, db_session)
-    assert result == {"valid": True, "user_id": str(user_id)}
+    assert result == {
+        "valid": True,
+        "user_id": str(user_id),
+        "checkout_required": True,
+    }
 
 
 async def test_validate_expired_session(db_session):
@@ -397,6 +403,16 @@ async def test_verify_email_code_expired(db_session):
     with pytest.raises(HTTPException) as exc:
         await auth_service.verify_email_code("vexp@test.com", code, db_session)
     assert exc.value.detail["error"] == "code_expired"
+
+
+async def test_new_user_login_requires_checkout(db_session):
+    """Law 3 / Decision B: a fresh verified user has no subscription, so
+    login reports checkout_required (paywall until Stripe grants trialing)."""
+    await _signup_and_verify(db_session, "nocard@test.com", "password123")
+    result = await auth_service.login(
+        "nocard@test.com", "password123", db_session
+    )
+    assert result["checkout_required"] is True
 
 
 # ─────────────────────── reset_password ─────────────────────────────────
