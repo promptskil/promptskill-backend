@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -118,6 +118,7 @@ async def reset_password_redirect(token: str) -> RedirectResponse:
 @limiter.limit("10/hour")
 async def verify_email_code(
     request: Request,
+    response: Response,   # REQUIRED by slowapi when headers_enabled=True
     body: VerifyEmailCodeRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
