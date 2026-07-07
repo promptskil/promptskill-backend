@@ -66,6 +66,39 @@ async def record_feedback(
     return {"prompt_id": str(prompt.id), "vote": prompt.feedback_vote.value}
 
 
+# ─────────────────────── export_vaine_feedback (Phase 8.1) ────────────────
+
+async def export_vaine_feedback(db: AsyncSession, limit: int = 1000) -> list[dict]:
+    """Flywheel export: voted Vaine-generated prompts -> training examples.
+
+    up -> positive, down -> negative; source = feedback. 8.2's retrain cadence
+    consumes this to grow the fine-tune dataset. record_feedback already stores
+    the vote; this is the read side that materializes training examples.
+    """
+    rows = (
+        await db.execute(
+            select(Prompt)
+            .where(
+                Prompt.system_prompt_version.like("vaine%"),
+                Prompt.feedback_vote.is_not(None),
+                Prompt.deleted_at.is_(None),
+            )
+            .order_by(Prompt.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        {
+            "input": p.topic,
+            "target_rewrite": p.prompt_text,
+            "polarity": "positive" if p.feedback_vote.value == "up" else "negative",
+            "source": "feedback",
+            "created_at": p.created_at.isoformat(),
+        }
+        for p in rows
+    ]
+
+
 # ─────────────────────── get_history ─────────────────────────────────────
 
 async def get_history(
