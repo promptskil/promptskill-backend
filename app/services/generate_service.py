@@ -34,11 +34,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.prompt import Prompt
+from app.services import vaine_engine
 from app.services.model_clients import (
     ProviderAPIError,
     ProviderRateLimitError,
     get_client,
 )
+from app.services.vaine_classifier import classify, threshold_from_taxonomy
+from app.services.vaine_format_filter import format_prompt
+from app.services.vaine_strengthener import strengthen
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +191,20 @@ def vaine_health_check(timeout_s: float = 30.0) -> tuple[bool, float]:
         return (resp.status_code == 200 and elapsed <= timeout_s, elapsed)
     except httpx.HTTPError:
         return (False, time.monotonic() - start)
+
+
+async def vaine_generate(model: str, topic: str) -> dict:
+    """Run the full Vaine pipeline: classify -> Module rewrite -> strengthen
+    -> format. Only agenerate() is generative; the rest is deterministic.
+    Returns {"prompt": final_prompt, "class": "simple"|"complex"}.
+    """
+    profile = VAINE_RULE_PROFILES.get(model)
+    if profile is None:
+        raise vaine_engine.VaineInferenceError(f"no rule profile for {model!r}")
+    cls = classify(topic, threshold_from_taxonomy(VAINE_TAXONOMY))
+    raw = await vaine_engine.agenerate(topic)
+    strong = strengthen(raw, profile, VAINE_LEXICON)
+    return {"prompt": format_prompt(strong, profile), "class": cls}
 
 
 def build_user_message(
