@@ -4,7 +4,7 @@ Scope: locks Phase 3 service-layer behavior so Phase 4 Celery migration
 has a pass/fail criterion. All tests run against real Postgres via
 SAVEPOINT rollback (see conftest.py).
 
-Test inventory (14 functions, D1 minimal + 1 parametrized reset rejection):
+Test inventory (17 functions, D1 minimal + 1 parametrized reset rejection):
   1.  test_signup_happy_path
   2.  test_signup_duplicate_email_409
   3.  test_login_happy_path
@@ -19,6 +19,9 @@ Test inventory (14 functions, D1 minimal + 1 parametrized reset rejection):
   12. test_forgot_password_dispatch_failure_does_not_propagate
   13. test_reset_password_full_cascade
   14. test_reset_password_rejects_bad_token (parametrized: invalid, used, expired)
+  15. test_resend_verification_unverified_issues_new_token
+  16. test_resend_verification_already_verified_no_send
+  17. test_resend_verification_unknown_email_no_send
 """
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -279,6 +282,55 @@ async def test_forgot_password_dispatch_failure_does_not_propagate(
     tokens = result.scalars().all()
     assert len(tokens) == 1
     assert tokens[0].used_at is None
+
+
+# ─────────────────────── resend_verification ────────────────────────
+
+async def test_resend_verification_unverified_issues_new_token(
+    db_session, mock_resend
+):
+    """Rule 1 (unverified re-entry): a fresh token is issued, the prior
+    unused token is invalidated, and exactly one email is dispatched."""
+    await auth_service.signup("resend@test.com", "password123", db_session)
+    # signup already created token A + sent one email — isolate the resend.
+    mock_resend.reset_mock()
+
+    await auth_service.resend_verification("resend@test.com", db_session)
+
+    result = await db_session.execute(
+        select(EmailVerificationToken)
+        .join(User, User.id == EmailVerificationToken.user_id)
+        .where(User.email == "resend@test.com")
+        .order_by(EmailVerificationToken.expires_at)
+    )
+    tokens = result.scalars().all()
+    assert len(tokens) == 2
+    assert tokens[0].used_at is not None, "prior token should be invalidated"
+    assert tokens[1].used_at is None, "new token should be active"
+    assert mock_resend.call_count == 1
+
+
+async def test_resend_verification_already_verified_no_send(
+    db_session, mock_resend
+):
+    """No-op with no signal: a verified account triggers no email and no
+    new token (prevents abuse + verification-state leak)."""
+    await _signup_and_verify(db_session, "verified-resend@test.com")
+    mock_resend.reset_mock()
+
+    await auth_service.resend_verification(
+        "verified-resend@test.com", db_session
+    )
+
+    assert mock_resend.call_count == 0
+
+
+async def test_resend_verification_unknown_email_no_send(
+    db_session, mock_resend
+):
+    """Unknown email: silent no-op (no enumeration), no exception raised."""
+    await auth_service.resend_verification("ghost-resend@test.com", db_session)
+    assert mock_resend.call_count == 0
 
 
 # ─────────────────────── reset_password ─────────────────────────────────
