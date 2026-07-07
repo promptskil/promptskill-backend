@@ -15,7 +15,7 @@ async def login_verified_user(
             EmailVerificationToken.user_id == user_uuid
         )
     )
-    await auth_service.verify_email(result.scalar_one(), db_session)
+    await auth_service.verify_email_code(email, result.scalar_one(), db_session)
 
     response = await client.post(
         "/auth/login",

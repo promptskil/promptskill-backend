@@ -4,7 +4,7 @@ Scope: locks Phase 3 service-layer behavior so Phase 4 Celery migration
 has a pass/fail criterion. All tests run against real Postgres via
 SAVEPOINT rollback (see conftest.py).
 
-Test inventory (17 functions, D1 minimal + 1 parametrized reset rejection):
+Test inventory (22 functions, D1 minimal + 1 parametrized reset rejection):
   1.  test_signup_happy_path
   2.  test_signup_duplicate_email_409
   3.  test_login_happy_path
@@ -22,6 +22,11 @@ Test inventory (17 functions, D1 minimal + 1 parametrized reset rejection):
   15. test_resend_verification_unverified_issues_new_token
   16. test_resend_verification_already_verified_no_send
   17. test_resend_verification_unknown_email_no_send
+  18. test_verify_email_code_happy
+  19. test_verify_email_code_unknown_email
+  20. test_verify_email_code_wrong_increments_attempts
+  21. test_verify_email_code_lockout_after_max_attempts
+  22. test_verify_email_code_expired
 """
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -52,7 +57,7 @@ async def _signup_and_verify(
 ):
     user_id = await auth_service.signup(email, password, db_session)
     token = await _verification_token_for(db_session, email)
-    await auth_service.verify_email(token, db_session)
+    await auth_service.verify_email_code(email, token, db_session)
     return user_id
 
 
@@ -331,6 +336,67 @@ async def test_resend_verification_unknown_email_no_send(
     """Unknown email: silent no-op (no enumeration), no exception raised."""
     await auth_service.resend_verification("ghost-resend@test.com", db_session)
     assert mock_resend.call_count == 0
+
+
+# ─────────────────────── verify_email_code ──────────────────────────────
+
+async def test_verify_email_code_happy(db_session):
+    await auth_service.signup("vcode@test.com", "password123", db_session)
+    code = await _verification_token_for(db_session, "vcode@test.com")
+    await auth_service.verify_email_code("vcode@test.com", code, db_session)
+    result = await db_session.execute(
+        select(User).where(User.email == "vcode@test.com")
+    )
+    assert result.scalar_one().email_verified_at is not None
+
+
+async def test_verify_email_code_unknown_email(db_session):
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.verify_email_code("ghost@test.com", "123456", db_session)
+    assert exc.value.status_code == 400
+    assert exc.value.detail["error"] == "code_invalid"
+
+
+async def test_verify_email_code_wrong_increments_attempts(db_session):
+    await auth_service.signup("vwrong@test.com", "password123", db_session)
+    real = await _verification_token_for(db_session, "vwrong@test.com")
+    wrong = "111111" if real != "111111" else "222222"
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.verify_email_code("vwrong@test.com", wrong, db_session)
+    assert exc.value.detail["error"] == "code_invalid"
+    row = await db_session.execute(
+        select(EmailVerificationToken)
+        .join(User, User.id == EmailVerificationToken.user_id)
+        .where(User.email == "vwrong@test.com")
+    )
+    assert row.scalar_one().attempts == 1
+
+
+async def test_verify_email_code_lockout_after_max_attempts(db_session):
+    await auth_service.signup("vlock@test.com", "password123", db_session)
+    real = await _verification_token_for(db_session, "vlock@test.com")
+    wrong = "111111" if real != "111111" else "222222"
+    for _ in range(auth_service.EMAIL_VERIFICATION_MAX_ATTEMPTS):
+        with pytest.raises(HTTPException) as exc:
+            await auth_service.verify_email_code("vlock@test.com", wrong, db_session)
+        assert exc.value.detail["error"] == "code_invalid"
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.verify_email_code("vlock@test.com", wrong, db_session)
+    assert exc.value.detail["error"] == "too_many_attempts"
+
+
+async def test_verify_email_code_expired(db_session):
+    await auth_service.signup("vexp@test.com", "password123", db_session)
+    code = await _verification_token_for(db_session, "vexp@test.com")
+    await db_session.execute(
+        update(EmailVerificationToken)
+        .where(EmailVerificationToken.token == code)
+        .values(expires_at=datetime.utcnow() - timedelta(minutes=1))
+    )
+    await db_session.commit()
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.verify_email_code("vexp@test.com", code, db_session)
+    assert exc.value.detail["error"] == "code_expired"
 
 
 # ─────────────────────── reset_password ─────────────────────────────────

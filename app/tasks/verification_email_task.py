@@ -114,18 +114,16 @@ class SendVerificationEmailTask(celery_app.Task):
 
     def run(self, email: str, token: str) -> dict:
         try:
-            verify_url = (
-                f"{settings.APP_BASE_URL}/auth/verify-email?token={token}"
-            )
             result = resend.Emails.send({
                 "from": "noreply@vaineai.com",
                 "to": email,
-                "subject": "Verify your Vaine email",
+                "subject": "Your Vaine verification code",
                 "html": (
-                    "<p>Verify your email to finish creating your "
-                    "Vaine account.</p>"
-                    f"<p><a href='{verify_url}'>Verify email</a></p>"
-                    "<p>This link expires in 24 hours. If you did not "
+                    "<p>Enter this code to finish creating your "
+                    "Vaine account:</p>"
+                    "<p style='font-size:24px;font-weight:bold;"
+                    f"letter-spacing:4px'>{token}</p>"
+                    "<p>This code expires in 15 minutes. If you did not "
                     "create a Vaine account, you can ignore this email.</p>"
                 ),
                 "headers": {"Idempotency-Key": self.request.id},

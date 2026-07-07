@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 SESSION_LIFETIME_DAYS = 30
 RESET_TOKEN_LIFETIME_HOURS = 1
-EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS = 24
+EMAIL_VERIFICATION_CODE_TTL_MINUTES = 15
+EMAIL_VERIFICATION_MAX_ATTEMPTS = 5
 BCRYPT_ROUNDS = 12  # Production value; tests monkeypatch to 4 for speed.
 
 
@@ -79,7 +80,7 @@ async def _create_email_verification_token(
     user_id: UUID,
     db: AsyncSession,
 ) -> str:
-    token_str = str(uuid4())
+    token_str = f"{secrets.randbelow(1_000_000):06d}"
     now_naive = datetime.utcnow()
 
     await db.execute(
@@ -95,7 +96,7 @@ async def _create_email_verification_token(
             user_id=user_id,
             token=token_str,
             expires_at=now_naive
-            + timedelta(hours=EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS),
+            + timedelta(minutes=EMAIL_VERIFICATION_CODE_TTL_MINUTES),
         )
     )
     return token_str
@@ -140,56 +141,69 @@ async def signup(email: str, password: str, db: AsyncSession) -> UUID:
     return user_id
 
 
-async def verify_email(token: str, db: AsyncSession) -> None:
-    result = await db.execute(
-        select(EmailVerificationToken).where(
-            EmailVerificationToken.token == token
-        )
-    )
-    verification_token = result.scalar_one_or_none()
+async def verify_email_code(email: str, code: str, db: AsyncSession) -> None:
+    """Verify an account by a 6-digit code entered in-app.
 
-    if not verification_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "token_invalid",
-                "message": "This verification link is invalid.",
-            },
-        )
-
-    user = await db.get(User, verification_token.user_id)
+    A code is short (guessable), so this is defended by: email-bound lookup
+    (never code-alone), a per-token attempt cap, a short expiry, and a
+    router-level rate limit. All failure paths return the SAME opaque error
+    so nothing leaks whether the email exists or a code is close.
+    """
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": "token_invalid",
-                "message": "This verification link is invalid.",
+                "error": "code_invalid",
+                "message": "That code is invalid or has expired.",
             },
         )
-
-    if verification_token.used_at is not None:
-        if user.email_verified_at is not None:
-            return
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "token_used",
-                "message": "This verification link has already been used.",
-            },
-        )
+    if user.email_verified_at is not None:
+        return  # idempotent — already verified
 
     now_naive = datetime.utcnow()
-    if verification_token.expires_at < now_naive:
+    result = await db.execute(
+        select(EmailVerificationToken)
+        .where(EmailVerificationToken.user_id == user.id)
+        .where(EmailVerificationToken.used_at.is_(None))
+        .where(EmailVerificationToken.expires_at > now_naive)
+        .order_by(EmailVerificationToken.expires_at.desc())
+    )
+    token_row = result.scalars().first()
+    if token_row is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": "token_expired",
-                "message": "This verification link has expired.",
+                "error": "code_expired",
+                "message": "That code is invalid or has expired.",
+            },
+        )
+
+    if token_row.attempts >= EMAIL_VERIFICATION_MAX_ATTEMPTS:
+        token_row.used_at = now_naive
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "too_many_attempts",
+                "message": "Too many attempts. Request a new code.",
+            },
+        )
+
+    if not secrets.compare_digest(token_row.token, code):
+        token_row.attempts += 1
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "code_invalid",
+                "message": "That code is invalid or has expired.",
             },
         )
 
     user.email_verified_at = now_naive
-    verification_token.used_at = now_naive
+    token_row.used_at = now_naive
     await db.commit()
 
 
