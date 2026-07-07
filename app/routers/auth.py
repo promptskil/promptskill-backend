@@ -10,6 +10,7 @@ from app.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     SignupRequest,
     SignupResponse,
@@ -80,6 +81,18 @@ async def forgot_password(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     await auth_service.forgot_password(body.email, db)
+    return {"success": True}
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    body: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Rule 1: unverified re-entry. Always 200 {success:true} — no
+    # enumeration, no verification-state leak. Sends only if the account
+    # exists AND is still unverified.
+    await auth_service.resend_verification(body.email, db)
     return {"success": True}
 
 
