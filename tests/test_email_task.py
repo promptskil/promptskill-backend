@@ -75,15 +75,15 @@ def test_send_reset_email_includes_idempotency_key(mock_resend):
     assert len(call_payload["headers"]["Idempotency-Key"]) > 0
 
 
-def test_send_verification_email_includes_idempotency_key_and_verify_link(
+def test_send_verification_email_includes_idempotency_key_and_code(
     mock_resend,
 ):
     send_verification_email_task.delay("verify@test.com", "verify-token")
 
     payload = mock_resend.call_args.args[0]
     assert payload["to"] == "verify@test.com"
-    assert payload["subject"] == "Verify your Vaine email"
-    assert "/auth/verify-email?token=verify-token" in payload["html"]
+    assert payload["subject"] == "Your Vaine verification code"
+    assert "verify-token" in payload["html"]
     assert "headers" in payload
     assert "Idempotency-Key" in payload["headers"]
     assert len(payload["headers"]["Idempotency-Key"]) > 0

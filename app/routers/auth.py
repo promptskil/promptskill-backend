@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import bearer_scheme
-from app.config import settings
 from app.database import get_db
+from app.rate_limit import limiter
 from app.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -15,6 +15,7 @@ from app.schemas import (
     SignupRequest,
     SignupResponse,
     ValidateRequest,
+    VerifyEmailCodeRequest,
 )
 from app.services import auth_service
 
@@ -113,11 +114,12 @@ async def reset_password_redirect(token: str) -> RedirectResponse:
     return RedirectResponse(url=deep_link, status_code=302)
 
 
-@router.get("/verify-email")
-async def verify_email(
-    token: str,
+@router.post("/verify-email-code")
+@limiter.limit("10/hour")
+async def verify_email_code(
+    request: Request,
+    body: VerifyEmailCodeRequest,
     db: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
-    await auth_service.verify_email(token, db)
-    web_base = settings.WEB_BASE_URL.rstrip("/")
-    return RedirectResponse(url=f"{web_base}/login?verified=1", status_code=302)
+) -> dict:
+    await auth_service.verify_email_code(body.email, body.code, db)
+    return {"success": True}

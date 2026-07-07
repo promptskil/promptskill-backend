@@ -115,7 +115,7 @@ async def test_signup_duplicate_email_returns_409(client):
     assert r2.json()["detail"]["error"] == "email_exists"
 
 
-async def test_verify_email_redirects_and_marks_user_verified(
+async def test_verify_email_code_marks_user_verified(
     client, db_session
 ):
     email = "router-verify@test.com"
@@ -127,11 +127,12 @@ async def test_verify_email_redirects_and_marks_user_verified(
 
     verification_token = await _verification_token_for(db_session, email)
 
-    r = await client.get(
-        f"/auth/verify-email?token={verification_token.token}"
+    r = await client.post(
+        "/auth/verify-email-code",
+        json={"email": email, "code": verification_token.token},
     )
-    assert r.status_code == 302
-    assert r.headers["location"].endswith("/login?verified=1")
+    assert r.status_code == 200
+    assert r.json()["success"] is True
 
     await db_session.refresh(verification_token)
     result = await db_session.execute(select(User).where(User.email == email))
@@ -140,15 +141,23 @@ async def test_verify_email_redirects_and_marks_user_verified(
     assert verification_token.used_at is not None
 
 
-async def test_verify_email_invalid_token_returns_400(client):
-    r = await client.get(
-        "/auth/verify-email?token=00000000-0000-0000-0000-000000000000"
+async def test_verify_email_code_invalid_returns_400(client, db_session):
+    email = "router-badcode@test.com"
+    await client.post(
+        "/auth/signup",
+        json={"email": email, "password": "password123"},
+    )
+    vt = await _verification_token_for(db_session, email)
+    wrong = "000000" if vt.token != "000000" else "111111"
+    r = await client.post(
+        "/auth/verify-email-code",
+        json={"email": email, "code": wrong},
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "token_invalid"
+    assert r.json()["detail"]["error"] == "code_invalid"
 
 
-async def test_verify_email_expired_token_returns_400(client, db_session):
+async def test_verify_email_code_expired_returns_400(client, db_session):
     email = "router-expired@test.com"
     r = await client.post(
         "/auth/signup",
@@ -160,11 +169,12 @@ async def test_verify_email_expired_token_returns_400(client, db_session):
     verification_token.expires_at = datetime.utcnow() - timedelta(minutes=1)
     await db_session.commit()
 
-    r = await client.get(
-        f"/auth/verify-email?token={verification_token.token}"
+    r = await client.post(
+        "/auth/verify-email-code",
+        json={"email": email, "code": verification_token.token},
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "token_expired"
+    assert r.json()["detail"]["error"] == "code_expired"
 
 
 async def test_login_invalid_credentials_returns_401(client):
