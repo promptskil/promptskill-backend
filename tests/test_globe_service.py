@@ -25,6 +25,8 @@ from app.services.globe_service import (
     create_post,
     create_reply,
     create_zone,
+    delete_post,
+    delete_reply,
     edit_post,
     edit_reply,
     get_hidden_zones,
@@ -397,3 +399,54 @@ async def test_get_hidden_zones_lists_hidden(db_session, user_a):
 async def test_get_hidden_zones_empty(db_session, user_a):
     result = await get_hidden_zones(user_a.id, db_session)
     assert result["zones"] == []
+
+
+# ─────────────────────── delete_post / delete_reply ──────────────────────
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_delete_post_removes_it(db_session, user_a):
+    await _profile(db_session, user_a, "del1")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "gone", db_session)
+    await delete_post(user_a.id, post["id"], db_session)
+    result = await get_thread(z["id"], limit=20, offset=0, db=db_session)
+    assert result["posts"] == []
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_delete_post_other_user_404(db_session, user_a, user_b):
+    await _profile(db_session, user_a, "del2")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "keep", db_session)
+    with pytest.raises(HTTPException) as exc:
+        await delete_post(user_b.id, post["id"], db_session)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_delete_post_missing_404(db_session, user_a):
+    with pytest.raises(HTTPException) as exc:
+        await delete_post(user_a.id, uuid4(), db_session)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_delete_post_cascades_replies(db_session, user_a):
+    await _profile(db_session, user_a, "del3")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "root", db_session)
+    await create_reply(user_a.id, post["id"], "child", None, db_session)
+    await delete_post(user_a.id, post["id"], db_session)
+    result = await get_thread(z["id"], limit=20, offset=0, db=db_session)
+    assert result["posts"] == []
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_delete_reply_removes_it(db_session, user_a):
+    await _profile(db_session, user_a, "del4")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "root", db_session)
+    reply = await create_reply(user_a.id, post["id"], "byebye", None, db_session)
+    await delete_reply(user_a.id, reply["id"], db_session)
+    result = await get_thread(z["id"], limit=20, offset=0, db=db_session)
+    assert result["posts"][0]["replies"] == []
