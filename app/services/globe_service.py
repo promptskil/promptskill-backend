@@ -196,6 +196,52 @@ async def create_reply(
     }
 
 
+# ─────────────────────── edits (author-only) ─────────────────────────────
+
+async def edit_post(
+    user_id: UUID, post_id: UUID, body: str, db: AsyncSession
+) -> dict:
+    post = (
+        await db.execute(
+            select(GlobePost).where(
+                GlobePost.id == post_id,
+                GlobePost.author_user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "post not found"},
+        )
+    post.body = body
+    await db.commit()
+    await db.refresh(post)
+    return {"id": post.id, "body": post.body}
+
+
+async def edit_reply(
+    user_id: UUID, reply_id: UUID, body: str, db: AsyncSession
+) -> dict:
+    reply = (
+        await db.execute(
+            select(GlobeReply).where(
+                GlobeReply.id == reply_id,
+                GlobeReply.author_user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if reply is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "reply not found"},
+        )
+    reply.body = body
+    await db.commit()
+    await db.refresh(reply)
+    return {"id": reply.id, "body": reply.body}
+
+
 # ─────────────────────── reads (no profile required) ──────────────────────
 
 async def get_zones(
