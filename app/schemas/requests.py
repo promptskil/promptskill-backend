@@ -65,3 +65,27 @@ class InviteBusinessMemberRequest(BaseModel):
 class AcceptInviteRequest(BaseModel):
     token: str = Field(min_length=1)
     password: str = Field(min_length=8, max_length=128)
+
+
+# ─────────────────────── Globe subsystem ─────────────────────────────────
+
+class GlobeUsernameRequest(BaseModel):
+    username: str = Field(
+        min_length=3, max_length=20, pattern=r"^[A-Za-z0-9_]+$"
+    )
+
+
+class GlobeZoneCreateRequest(BaseModel):
+    domain: Literal[
+        "startup", "ai", "finance", "career", "programming", "health"
+    ]
+    title: str = Field(min_length=1, max_length=120)
+
+
+class GlobePostCreateRequest(BaseModel):
+    body: str = Field(min_length=1)
+
+
+class GlobeReplyCreateRequest(BaseModel):
+    body: str = Field(min_length=1)
+    parent_reply_id: UUID | None = None

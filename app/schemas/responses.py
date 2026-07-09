@@ -132,3 +132,43 @@ class AcceptInviteResponse(BaseModel):
     user_id: UUID
     account_type: str  # always "employee"
     business_id: UUID
+
+
+# ─────────────────────── Globe subsystem ─────────────────────────────────
+
+class GlobeMeResponse(BaseModel):
+    username: str | None
+
+
+class GlobeUsernameResponse(BaseModel):
+    username: str
+
+
+class GlobeZoneOut(BaseModel):
+    id: UUID
+    title: str
+    created_at: datetime
+
+
+class GlobeZonesResponse(BaseModel):
+    zones: list[GlobeZoneOut]
+
+
+class GlobeReplyOut(BaseModel):
+    id: UUID
+    parent_reply_id: UUID | None
+    author_username: str
+    body: str
+    created_at: datetime
+
+
+class GlobePostOut(BaseModel):
+    id: UUID
+    author_username: str
+    body: str
+    created_at: datetime
+    replies: list[GlobeReplyOut]
+
+
+class GlobePostsResponse(BaseModel):
+    posts: list[GlobePostOut]
