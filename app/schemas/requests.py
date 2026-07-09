@@ -76,9 +76,7 @@ class GlobeUsernameRequest(BaseModel):
 
 
 class GlobeZoneCreateRequest(BaseModel):
-    domain: Literal[
-        "startup", "ai", "finance", "career", "programming", "health"
-    ]
+    domain: str = Field(min_length=1, max_length=50)
     title: str = Field(min_length=1, max_length=120)
 
 

@@ -15,6 +15,7 @@ from app.database import get_db
 from app.rate_limit import limiter
 from app.schemas import (
     GlobeDeletedResponse,
+    GlobeDomainsResponse,
     GlobeEditedResponse,
     GlobeEditRequest,
     GlobeHideResponse,
@@ -76,6 +77,16 @@ async def list_hidden_zones(
 ) -> GlobeZonesResponse:
     result = await globe_service.get_hidden_zones(user_id, db)
     return GlobeZonesResponse(**result)
+
+
+@router.get("/domains", response_model=GlobeDomainsResponse)
+async def list_domains(
+    q: str | None = Query(default=None, max_length=50),
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeDomainsResponse:
+    result = await globe_service.list_domains(q, db)
+    return GlobeDomainsResponse(**result)
 
 
 @router.post("/zones", response_model=GlobeZoneOut)
