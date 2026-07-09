@@ -355,3 +355,12 @@ async def test_delete_reply_happy(client, db_session):
     r = await client.delete(f"/globe/replies/{reply_id}", headers=_auth(token))
     assert r.status_code == 200, r.text
     assert r.json()["deleted"] is True
+
+
+# ─────────────────────── domains ─────────────────────────────────────────
+
+async def test_list_domains(client, db_session):
+    token, _ = await _signup(client, db_session, "g-domains@t.com")
+    r = await client.get("/globe/domains", headers=_auth(token))
+    assert r.status_code == 200
+    assert "Startup" in r.json()["domains"]
