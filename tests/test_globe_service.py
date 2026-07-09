@@ -243,6 +243,7 @@ async def test_get_thread_posts_and_flat_replies(db_session, user_a):
     await create_reply(user_a.id, post["id"], "reply2", r1["id"], db_session)
 
     result = await get_thread(z["id"], limit=20, offset=0, db=db_session)
+    assert result["zone"]["id"] == z["id"]
     assert len(result["posts"]) == 1
     p = result["posts"][0]
     assert p["author_username"] == "threader"
