@@ -173,3 +173,8 @@ class GlobePostOut(BaseModel):
 class GlobePostsResponse(BaseModel):
     zone: GlobeZoneOut
     posts: list[GlobePostOut]
+
+
+class GlobeEditedResponse(BaseModel):
+    id: UUID
+    body: str
