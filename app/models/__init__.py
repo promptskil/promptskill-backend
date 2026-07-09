@@ -4,7 +4,13 @@ from app.models.business_invite import BusinessInvite
 from app.models.business_member import BusinessMember
 from app.models.dead_letter_email import DeadLetterEmail
 from app.models.email_verification_token import EmailVerificationToken
-from app.models.globe import GlobePost, GlobeProfile, GlobeReply, GlobeZone
+from app.models.globe import (
+    GlobeHiddenZone,
+    GlobePost,
+    GlobeProfile,
+    GlobeReply,
+    GlobeZone,
+)
 from app.models.prompt import Prompt, PromptVote
 from app.models.reset_token import PasswordResetToken
 from app.models.session import Session
@@ -26,4 +32,5 @@ __all__ = [
     "GlobeZone",
     "GlobePost",
     "GlobeReply",
+    "GlobeHiddenZone",
 ]

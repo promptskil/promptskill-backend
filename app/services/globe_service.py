@@ -19,7 +19,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.globe import GlobePost, GlobeProfile, GlobeReply, GlobeZone
+from app.models.globe import (
+    GlobeHiddenZone,
+    GlobePost,
+    GlobeProfile,
+    GlobeReply,
+    GlobeZone,
+)
 
 _MAX_LIMIT = 50
 
@@ -242,13 +248,59 @@ async def edit_reply(
     return {"id": reply.id, "body": reply.body}
 
 
+# ─────────────────────── hide / unhide (personal) ────────────────────────
+
+async def hide_zone(user_id: UUID, zone_id: UUID, db: AsyncSession) -> dict:
+    exists = (
+        await db.execute(select(GlobeZone.id).where(GlobeZone.id == zone_id))
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "zone not found"},
+        )
+    already = (
+        await db.execute(
+            select(GlobeHiddenZone.id).where(
+                GlobeHiddenZone.user_id == user_id,
+                GlobeHiddenZone.zone_id == zone_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if already is None:
+        db.add(GlobeHiddenZone(user_id=user_id, zone_id=zone_id))
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()  # race: already hidden — idempotent
+    return {"zone_id": zone_id, "hidden": True}
+
+
+async def unhide_zone(user_id: UUID, zone_id: UUID, db: AsyncSession) -> dict:
+    row = (
+        await db.execute(
+            select(GlobeHiddenZone).where(
+                GlobeHiddenZone.user_id == user_id,
+                GlobeHiddenZone.zone_id == zone_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
+    return {"zone_id": zone_id, "hidden": False}
+
+
 # ─────────────────────── reads (no profile required) ──────────────────────
 
 async def get_zones(
-    limit: int, offset: int, q: str | None, db: AsyncSession
+    user_id: UUID, limit: int, offset: int, q: str | None, db: AsyncSession
 ) -> dict:
     _validate_page(limit, offset)
-    stmt = select(GlobeZone)
+    hidden = select(GlobeHiddenZone.zone_id).where(
+        GlobeHiddenZone.user_id == user_id
+    )
+    stmt = select(GlobeZone).where(GlobeZone.id.not_in(hidden))
     if q:
         pattern = f"%{_like_escape(q)}%"
         matching = (
