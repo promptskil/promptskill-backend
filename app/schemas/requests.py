@@ -89,3 +89,7 @@ class GlobePostCreateRequest(BaseModel):
 class GlobeReplyCreateRequest(BaseModel):
     body: str = Field(min_length=1)
     parent_reply_id: UUID | None = None
+
+
+class GlobeEditRequest(BaseModel):
+    body: str = Field(min_length=1)

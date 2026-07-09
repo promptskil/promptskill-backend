@@ -14,6 +14,8 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.rate_limit import limiter
 from app.schemas import (
+    GlobeEditRequest,
+    GlobeEditedResponse,
     GlobeMeResponse,
     GlobePostCreateRequest,
     GlobePostOut,
@@ -118,3 +120,31 @@ async def create_reply(
         user_id, post_id, body.body, body.parent_reply_id, db
     )
     return GlobeReplyOut(**result)
+
+
+@router.patch("/posts/{post_id}", response_model=GlobeEditedResponse)
+@limiter.limit("30/hour")
+async def edit_post(
+    request: Request,
+    response: Response,
+    post_id: UUID,
+    body: GlobeEditRequest,
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeEditedResponse:
+    result = await globe_service.edit_post(user_id, post_id, body.body, db)
+    return GlobeEditedResponse(**result)
+
+
+@router.patch("/replies/{reply_id}", response_model=GlobeEditedResponse)
+@limiter.limit("30/hour")
+async def edit_reply(
+    request: Request,
+    response: Response,
+    reply_id: UUID,
+    body: GlobeEditRequest,
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeEditedResponse:
+    result = await globe_service.edit_reply(user_id, reply_id, body.body, db)
+    return GlobeEditedResponse(**result)

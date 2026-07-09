@@ -25,6 +25,8 @@ from app.services.globe_service import (
     create_post,
     create_reply,
     create_zone,
+    edit_post,
+    edit_reply,
     get_me,
     get_thread,
     get_zones,
@@ -273,3 +275,55 @@ async def test_get_thread_posts_ordered_asc(db_session, user_a):
     result = await get_thread(z["id"], limit=20, offset=0, db=db_session)
     bodies = [p["body"] for p in result["posts"]]
     assert bodies == ["first", "second", "third"]
+
+
+# ─────────────────────── edit_post / edit_reply ──────────────────────────
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_edit_post_changes_body(db_session, user_a):
+    await _profile(db_session, user_a, "editor1")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "original", db_session)
+    result = await edit_post(user_a.id, post["id"], "edited", db_session)
+    assert result["body"] == "edited"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_edit_post_other_user_404(db_session, user_a, user_b):
+    await _profile(db_session, user_a, "editor2")
+    await _profile(db_session, user_b, "editor2b")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "original", db_session)
+    with pytest.raises(HTTPException) as exc:
+        await edit_post(user_b.id, post["id"], "hax", db_session)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_edit_post_missing_404(db_session, user_a):
+    await _profile(db_session, user_a, "editor3")
+    with pytest.raises(HTTPException) as exc:
+        await edit_post(user_a.id, uuid4(), "x", db_session)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_edit_reply_changes_body(db_session, user_a):
+    await _profile(db_session, user_a, "editor4")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "root", db_session)
+    reply = await create_reply(user_a.id, post["id"], "original", None, db_session)
+    result = await edit_reply(user_a.id, reply["id"], "edited", db_session)
+    assert result["body"] == "edited"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_edit_reply_other_user_404(db_session, user_a, user_b):
+    await _profile(db_session, user_a, "editor5")
+    await _profile(db_session, user_b, "editor5b")
+    z = await create_zone(user_a.id, "startup", "Z", db_session)
+    post = await create_post(user_a.id, z["id"], "root", db_session)
+    reply = await create_reply(user_a.id, post["id"], "original", None, db_session)
+    with pytest.raises(HTTPException) as exc:
+        await edit_reply(user_b.id, reply["id"], "hax", db_session)
+    assert exc.value.status_code == 404

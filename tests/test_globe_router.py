@@ -200,3 +200,65 @@ async def test_reply_post_missing_404(client, db_session):
     r = await client.post(f"/globe/posts/{uuid4()}/replies",
                           json={"body": "x"}, headers=_auth(token))
     assert r.status_code == 404
+
+
+# ─────────────────────── edit post / reply ───────────────────────────────
+
+async def test_edit_post_happy(client, db_session):
+    token, _ = await _signup(client, db_session, "g-edit@t.com")
+    await _claim(client, token, "editor1")
+    z = await _create_zone(client, token)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "orig"}, headers=_auth(token))
+    post_id = p.json()["id"]
+    r = await client.patch(f"/globe/posts/{post_id}",
+                           json={"body": "edited"}, headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["body"] == "edited"
+
+
+async def test_edit_post_other_user_404(client, db_session):
+    t_a, _ = await _signup(client, db_session, "g-edita@t.com")
+    t_b, _ = await _signup(client, db_session, "g-editb@t.com")
+    await _claim(client, t_a, "ownerx")
+    await _claim(client, t_b, "otherx")
+    z = await _create_zone(client, t_a)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "orig"}, headers=_auth(t_a))
+    post_id = p.json()["id"]
+    r = await client.patch(f"/globe/posts/{post_id}",
+                           json={"body": "hax"}, headers=_auth(t_b))
+    assert r.status_code == 404
+
+
+async def test_edit_post_no_auth_401(client):
+    r = await client.patch(f"/globe/posts/{uuid4()}", json={"body": "x"})
+    assert r.status_code == 401
+
+
+async def test_edit_post_empty_body_400(client, db_session):
+    token, _ = await _signup(client, db_session, "g-editempty@t.com")
+    await _claim(client, token, "emptyx")
+    z = await _create_zone(client, token)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "orig"}, headers=_auth(token))
+    post_id = p.json()["id"]
+    r = await client.patch(f"/globe/posts/{post_id}",
+                           json={"body": ""}, headers=_auth(token))
+    assert r.status_code == 400
+
+
+async def test_edit_reply_happy(client, db_session):
+    token, _ = await _signup(client, db_session, "g-editreply@t.com")
+    await _claim(client, token, "replyeditor")
+    z = await _create_zone(client, token)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "root"}, headers=_auth(token))
+    post_id = p.json()["id"]
+    rr = await client.post(f"/globe/posts/{post_id}/replies",
+                           json={"body": "orig"}, headers=_auth(token))
+    reply_id = rr.json()["id"]
+    r = await client.patch(f"/globe/replies/{reply_id}",
+                           json={"body": "edited"}, headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["body"] == "edited"
