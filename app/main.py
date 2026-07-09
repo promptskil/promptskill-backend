@@ -11,6 +11,7 @@ from app.routers import auth as auth_router
 from app.routers import billing as billing_router
 from app.routers import business as business_router
 from app.routers import generate as generate_router
+from app.routers import globe as globe_router
 from app.routers import history as history_router
 from app.routers import invite as invite_router
 from app.routers import stripe_webhook as stripe_webhook_router
@@ -90,6 +91,9 @@ app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 app.include_router(generate_router.router, tags=["generate"])
 app.include_router(history_router.router, tags=["history"])
 app.include_router(user_router.router, tags=["user"])
+
+# Globe subsystem (auth-only gate; behind Main)
+app.include_router(globe_router.router, prefix="/globe", tags=["globe"])
 
 # Billing / Stripe subscriptions (individual web)
 app.include_router(billing_router.router, prefix="/billing", tags=["billing"])
