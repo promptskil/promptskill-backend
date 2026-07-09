@@ -188,3 +188,7 @@ class GlobeHideResponse(BaseModel):
 class GlobeDeletedResponse(BaseModel):
     id: UUID
     deleted: bool
+
+
+class GlobeDomainsResponse(BaseModel):
+    domains: list[str]

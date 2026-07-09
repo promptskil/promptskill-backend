@@ -5,6 +5,7 @@ from app.models.business_member import BusinessMember
 from app.models.dead_letter_email import DeadLetterEmail
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.globe import (
+    GlobeDomain,
     GlobeHiddenZone,
     GlobePost,
     GlobeProfile,
@@ -33,4 +34,5 @@ __all__ = [
     "GlobePost",
     "GlobeReply",
     "GlobeHiddenZone",
+    "GlobeDomain",
 ]

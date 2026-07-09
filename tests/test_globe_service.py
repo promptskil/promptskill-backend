@@ -31,9 +31,11 @@ from app.services.globe_service import (
     edit_reply,
     get_hidden_zones,
     get_me,
+    get_or_create_domain,
     get_thread,
     get_zones,
     hide_zone,
+    list_domains,
     unhide_zone,
 )
 
@@ -450,3 +452,32 @@ async def test_delete_reply_removes_it(db_session, user_a):
     await delete_reply(user_a.id, reply["id"], db_session)
     result = await get_thread(z["id"], limit=20, offset=0, db=db_session)
     assert result["posts"][0]["replies"] == []
+
+
+# ─────────────────────── domains (shared, deduped) ───────────────────────
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_get_or_create_domain_dedup(db_session):
+    a = await get_or_create_domain("crypto", db_session)
+    assert a == "Crypto"
+    b = await get_or_create_domain("CRYPTO", db_session)
+    assert b == "Crypto"  # case-insensitive → same canonical, no duplicate
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_get_or_create_domain_matches_seeded(db_session):
+    result = await get_or_create_domain("startup", db_session)
+    assert result == "Startup"  # seeded preset, case-insensitive match
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_domains_includes_presets(db_session):
+    result = await list_domains(None, db_session)
+    assert "Startup" in result["domains"]
+    assert "Health & Fitness" in result["domains"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_domains_search(db_session):
+    result = await list_domains("found", db_session)
+    assert "Founders" in result["domains"]
