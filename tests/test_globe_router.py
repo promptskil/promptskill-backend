@@ -296,3 +296,13 @@ async def test_hide_missing_zone_404(client, db_session):
 async def test_hide_no_auth_401(client):
     r = await client.post(f"/globe/zones/{uuid4()}/hide")
     assert r.status_code == 401
+
+
+async def test_list_hidden_zones(client, db_session):
+    token, _ = await _signup(client, db_session, "g-hlist@t.com")
+    await _claim(client, token, "hlister")
+    z = await _create_zone(client, token, "zzqrouterhidden")
+    await client.post(f"/globe/zones/{z['id']}/hide", headers=_auth(token))
+    r = await client.get("/globe/zones/hidden", headers=_auth(token))
+    assert r.status_code == 200
+    assert z["id"] in [zz["id"] for zz in r.json()["zones"]]
