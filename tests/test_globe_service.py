@@ -30,6 +30,8 @@ from app.services.globe_service import (
     get_me,
     get_thread,
     get_zones,
+    hide_zone,
+    unhide_zone,
 )
 
 
@@ -185,7 +187,7 @@ async def test_get_zones_orders_desc(db_session, user_a):
             created_at=base + timedelta(seconds=secs),
         ))
     await db_session.commit()
-    result = await get_zones(limit=20, offset=0, q=None, db=db_session)
+    result = await get_zones(user_id=user_a.id, limit=20, offset=0, q=None, db=db_session)
     titles = [z["title"] for z in result["zones"]]
     assert titles[:3] == ["newest", "mid", "oldest"]
 
@@ -194,7 +196,7 @@ async def test_get_zones_orders_desc(db_session, user_a):
 async def test_get_zones_search_matches_title(db_session, user_a):
     await _profile(db_session, user_a, "search1")
     await create_zone(user_a.id, "startup", "zzqtitletoken here", db_session)
-    result = await get_zones(limit=20, offset=0, q="zzqtitletoken", db=db_session)
+    result = await get_zones(user_id=user_a.id, limit=20, offset=0, q="zzqtitletoken", db=db_session)
     assert any("zzqtitletoken" in z["title"] for z in result["zones"])
 
 
@@ -203,7 +205,7 @@ async def test_get_zones_search_matches_post_body(db_session, user_a):
     await _profile(db_session, user_a, "search2")
     z = await create_zone(user_a.id, "startup", "Neutral", db_session)
     await create_post(user_a.id, z["id"], "body has zzqpostword inside", db_session)
-    result = await get_zones(limit=20, offset=0, q="zzqpostword", db=db_session)
+    result = await get_zones(user_id=user_a.id, limit=20, offset=0, q="zzqpostword", db=db_session)
     assert z["id"] in [zz["id"] for zz in result["zones"]]
 
 
@@ -213,7 +215,7 @@ async def test_get_zones_search_matches_reply_body(db_session, user_a):
     z = await create_zone(user_a.id, "startup", "Neutral", db_session)
     post = await create_post(user_a.id, z["id"], "root", db_session)
     await create_reply(user_a.id, post["id"], "zzqreplyword here", None, db_session)
-    result = await get_zones(limit=20, offset=0, q="zzqreplyword", db=db_session)
+    result = await get_zones(user_id=user_a.id, limit=20, offset=0, q="zzqreplyword", db=db_session)
     assert z["id"] in [zz["id"] for zz in result["zones"]]
 
 
@@ -222,7 +224,7 @@ async def test_get_zones_search_distinct(db_session, user_a):
     await _profile(db_session, user_a, "search4")
     z = await create_zone(user_a.id, "startup", "zzqdistinct in title", db_session)
     await create_post(user_a.id, z["id"], "zzqdistinct in body too", db_session)
-    result = await get_zones(limit=20, offset=0, q="zzqdistinct", db=db_session)
+    result = await get_zones(user_id=user_a.id, limit=20, offset=0, q="zzqdistinct", db=db_session)
     ids = [zz["id"] for zz in result["zones"]]
     assert ids.count(z["id"]) == 1
 
@@ -230,7 +232,7 @@ async def test_get_zones_search_distinct(db_session, user_a):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_get_zones_limit_over_max_400(db_session):
     with pytest.raises(HTTPException) as exc:
-        await get_zones(limit=51, offset=0, q=None, db=db_session)
+        await get_zones(user_id=uuid4(), limit=51, offset=0, q=None, db=db_session)
     assert exc.value.status_code == 400
 
 
@@ -327,3 +329,55 @@ async def test_edit_reply_other_user_404(db_session, user_a, user_b):
     with pytest.raises(HTTPException) as exc:
         await edit_reply(user_b.id, reply["id"], "hax", db_session)
     assert exc.value.status_code == 404
+
+
+# ─────────────────────── hide / unhide ───────────────────────────────────
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_hide_excludes_from_own_feed(db_session, user_a):
+    await _profile(db_session, user_a, "hider1")
+    z = await create_zone(user_a.id, "startup", "zzqhide", db_session)
+    await hide_zone(user_a.id, z["id"], db_session)
+    result = await get_zones(
+        user_id=user_a.id, limit=20, offset=0, q=None, db=db_session
+    )
+    assert z["id"] not in [zz["id"] for zz in result["zones"]]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_hide_is_personal(db_session, user_a, user_b):
+    await _profile(db_session, user_a, "hider2")
+    z = await create_zone(user_a.id, "startup", "zzqpersonal", db_session)
+    await hide_zone(user_a.id, z["id"], db_session)
+    result = await get_zones(
+        user_id=user_b.id, limit=20, offset=0, q=None, db=db_session
+    )
+    assert z["id"] in [zz["id"] for zz in result["zones"]]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_hide_idempotent(db_session, user_a):
+    await _profile(db_session, user_a, "hider3")
+    z = await create_zone(user_a.id, "startup", "zzqidem", db_session)
+    await hide_zone(user_a.id, z["id"], db_session)
+    r = await hide_zone(user_a.id, z["id"], db_session)
+    assert r["hidden"] is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_hide_missing_zone_404(db_session, user_a):
+    with pytest.raises(HTTPException) as exc:
+        await hide_zone(user_a.id, uuid4(), db_session)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_unhide_reincludes(db_session, user_a):
+    await _profile(db_session, user_a, "hider4")
+    z = await create_zone(user_a.id, "startup", "zzqunhide", db_session)
+    await hide_zone(user_a.id, z["id"], db_session)
+    await unhide_zone(user_a.id, z["id"], db_session)
+    result = await get_zones(
+        user_id=user_a.id, limit=20, offset=0, q=None, db=db_session
+    )
+    assert z["id"] in [zz["id"] for zz in result["zones"]]

@@ -178,3 +178,8 @@ class GlobePostsResponse(BaseModel):
 class GlobeEditedResponse(BaseModel):
     id: UUID
     body: str
+
+
+class GlobeHideResponse(BaseModel):
+    zone_id: UUID
+    hidden: bool
