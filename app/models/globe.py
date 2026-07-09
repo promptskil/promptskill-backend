@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import CITEXT, ENUM, UUID
@@ -137,4 +138,28 @@ class GlobeReply(Base):
             postgresql_using="gin",
             postgresql_ops={"body": "gin_trgm_ops"},
         ),
+    )
+
+
+class GlobeHiddenZone(Base):
+    __tablename__ = "globe_hidden_zones"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    zone_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("globe_zones.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "zone_id", name="uq_globe_hidden_user_zone"),
+        Index("ix_globe_hidden_user", "user_id"),
     )

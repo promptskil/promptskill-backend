@@ -262,3 +262,37 @@ async def test_edit_reply_happy(client, db_session):
                            json={"body": "edited"}, headers=_auth(token))
     assert r.status_code == 200, r.text
     assert r.json()["body"] == "edited"
+
+
+# ─────────────────────── hide / unhide ───────────────────────────────────
+
+async def test_hide_removes_from_feed(client, db_session):
+    token, _ = await _signup(client, db_session, "g-hide@t.com")
+    await _claim(client, token, "hider1")
+    z = await _create_zone(client, token, "zzqhidefeed")
+    h = await client.post(f"/globe/zones/{z['id']}/hide", headers=_auth(token))
+    assert h.status_code == 200, h.text
+    assert h.json()["hidden"] is True
+    r = await client.get("/globe/zones", headers=_auth(token))
+    assert z["id"] not in [zz["id"] for zz in r.json()["zones"]]
+
+
+async def test_unhide_restores(client, db_session):
+    token, _ = await _signup(client, db_session, "g-unhide@t.com")
+    await _claim(client, token, "unhider1")
+    z = await _create_zone(client, token, "zzqunhidefeed")
+    await client.post(f"/globe/zones/{z['id']}/hide", headers=_auth(token))
+    await client.delete(f"/globe/zones/{z['id']}/hide", headers=_auth(token))
+    r = await client.get("/globe/zones", headers=_auth(token))
+    assert z["id"] in [zz["id"] for zz in r.json()["zones"]]
+
+
+async def test_hide_missing_zone_404(client, db_session):
+    token, _ = await _signup(client, db_session, "g-hidemiss@t.com")
+    r = await client.post(f"/globe/zones/{uuid4()}/hide", headers=_auth(token))
+    assert r.status_code == 404
+
+
+async def test_hide_no_auth_401(client):
+    r = await client.post(f"/globe/zones/{uuid4()}/hide")
+    assert r.status_code == 401

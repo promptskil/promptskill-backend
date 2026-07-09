@@ -16,6 +16,7 @@ from app.rate_limit import limiter
 from app.schemas import (
     GlobeEditedResponse,
     GlobeEditRequest,
+    GlobeHideResponse,
     GlobeMeResponse,
     GlobePostCreateRequest,
     GlobePostOut,
@@ -63,7 +64,7 @@ async def list_zones(
     user_id: UUID = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GlobeZonesResponse:
-    result = await globe_service.get_zones(limit, offset, q, db)
+    result = await globe_service.get_zones(user_id, limit, offset, q, db)
     return GlobeZonesResponse(**result)
 
 
@@ -148,3 +149,29 @@ async def edit_reply(
 ) -> GlobeEditedResponse:
     result = await globe_service.edit_reply(user_id, reply_id, body.body, db)
     return GlobeEditedResponse(**result)
+
+
+@router.post("/zones/{zone_id}/hide", response_model=GlobeHideResponse)
+@limiter.limit("60/hour")
+async def hide_zone(
+    request: Request,
+    response: Response,
+    zone_id: UUID,
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeHideResponse:
+    result = await globe_service.hide_zone(user_id, zone_id, db)
+    return GlobeHideResponse(**result)
+
+
+@router.delete("/zones/{zone_id}/hide", response_model=GlobeHideResponse)
+@limiter.limit("60/hour")
+async def unhide_zone(
+    request: Request,
+    response: Response,
+    zone_id: UUID,
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeHideResponse:
+    result = await globe_service.unhide_zone(user_id, zone_id, db)
+    return GlobeHideResponse(**result)
