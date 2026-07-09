@@ -14,8 +14,8 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.rate_limit import limiter
 from app.schemas import (
-    GlobeEditRequest,
     GlobeEditedResponse,
+    GlobeEditRequest,
     GlobeMeResponse,
     GlobePostCreateRequest,
     GlobePostOut,
