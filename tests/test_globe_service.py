@@ -27,6 +27,7 @@ from app.services.globe_service import (
     create_zone,
     edit_post,
     edit_reply,
+    get_hidden_zones,
     get_me,
     get_thread,
     get_zones,
@@ -381,3 +382,18 @@ async def test_unhide_reincludes(db_session, user_a):
         user_id=user_a.id, limit=20, offset=0, q=None, db=db_session
     )
     assert z["id"] in [zz["id"] for zz in result["zones"]]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_get_hidden_zones_lists_hidden(db_session, user_a):
+    await _profile(db_session, user_a, "hlist1")
+    z = await create_zone(user_a.id, "startup", "zzqhlist", db_session)
+    await hide_zone(user_a.id, z["id"], db_session)
+    result = await get_hidden_zones(user_a.id, db_session)
+    assert z["id"] in [zz["id"] for zz in result["zones"]]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_get_hidden_zones_empty(db_session, user_a):
+    result = await get_hidden_zones(user_a.id, db_session)
+    assert result["zones"] == []
