@@ -14,6 +14,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.rate_limit import limiter
 from app.schemas import (
+    GlobeDeletedResponse,
     GlobeEditedResponse,
     GlobeEditRequest,
     GlobeHideResponse,
@@ -158,6 +159,32 @@ async def edit_reply(
 ) -> GlobeEditedResponse:
     result = await globe_service.edit_reply(user_id, reply_id, body.body, db)
     return GlobeEditedResponse(**result)
+
+
+@router.delete("/posts/{post_id}", response_model=GlobeDeletedResponse)
+@limiter.limit("30/hour")
+async def delete_post(
+    request: Request,
+    response: Response,
+    post_id: UUID,
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeDeletedResponse:
+    result = await globe_service.delete_post(user_id, post_id, db)
+    return GlobeDeletedResponse(**result)
+
+
+@router.delete("/replies/{reply_id}", response_model=GlobeDeletedResponse)
+@limiter.limit("30/hour")
+async def delete_reply(
+    request: Request,
+    response: Response,
+    reply_id: UUID,
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeDeletedResponse:
+    result = await globe_service.delete_reply(user_id, reply_id, db)
+    return GlobeDeletedResponse(**result)
 
 
 @router.post("/zones/{zone_id}/hide", response_model=GlobeHideResponse)

@@ -306,3 +306,52 @@ async def test_list_hidden_zones(client, db_session):
     r = await client.get("/globe/zones/hidden", headers=_auth(token))
     assert r.status_code == 200
     assert z["id"] in [zz["id"] for zz in r.json()["zones"]]
+
+
+# ─────────────────────── delete post / reply ─────────────────────────────
+
+async def test_delete_post_happy(client, db_session):
+    token, _ = await _signup(client, db_session, "g-del@t.com")
+    await _claim(client, token, "deleter1")
+    z = await _create_zone(client, token)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "gone"}, headers=_auth(token))
+    post_id = p.json()["id"]
+    r = await client.delete(f"/globe/posts/{post_id}", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] is True
+    t = await client.get(f"/globe/zones/{z['id']}/posts", headers=_auth(token))
+    assert t.json()["posts"] == []
+
+
+async def test_delete_post_other_user_404(client, db_session):
+    t_a, _ = await _signup(client, db_session, "g-dela@t.com")
+    t_b, _ = await _signup(client, db_session, "g-delb@t.com")
+    await _claim(client, t_a, "downer")
+    await _claim(client, t_b, "dother")
+    z = await _create_zone(client, t_a)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "keep"}, headers=_auth(t_a))
+    post_id = p.json()["id"]
+    r = await client.delete(f"/globe/posts/{post_id}", headers=_auth(t_b))
+    assert r.status_code == 404
+
+
+async def test_delete_no_auth_401(client):
+    r = await client.delete(f"/globe/posts/{uuid4()}")
+    assert r.status_code == 401
+
+
+async def test_delete_reply_happy(client, db_session):
+    token, _ = await _signup(client, db_session, "g-delreply@t.com")
+    await _claim(client, token, "delreplier")
+    z = await _create_zone(client, token)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "root"}, headers=_auth(token))
+    post_id = p.json()["id"]
+    rr = await client.post(f"/globe/posts/{post_id}/replies",
+                           json={"body": "bye"}, headers=_auth(token))
+    reply_id = rr.json()["id"]
+    r = await client.delete(f"/globe/replies/{reply_id}", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] is True
