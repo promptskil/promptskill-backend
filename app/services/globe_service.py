@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.globe import (
+    GlobeDomain,
     GlobeHiddenZone,
     GlobePost,
     GlobeProfile,
@@ -114,13 +115,56 @@ async def _assert_profile(user_id: UUID, db: AsyncSession) -> GlobeProfile:
     return profile
 
 
+# ─────────────────────── domains (shared, deduped) ───────────────────────
+
+def _normalize_domain(name: str) -> str:
+    n = name.strip()
+    return (n[:1].upper() + n[1:]) if n else n
+
+
+async def get_or_create_domain(name: str, db: AsyncSession) -> str:
+    canonical = _normalize_domain(name)
+    found = (
+        await db.execute(
+            select(GlobeDomain.name).where(GlobeDomain.name == canonical)
+        )
+    ).scalar_one_or_none()
+    if found is not None:
+        return found
+    db.add(GlobeDomain(name=canonical))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        found = (
+            await db.execute(
+                select(GlobeDomain.name).where(GlobeDomain.name == canonical)
+            )
+        ).scalar_one_or_none()
+        return found or canonical
+    return canonical
+
+
+async def list_domains(q: str | None, db: AsyncSession) -> dict:
+    stmt = select(GlobeDomain.name)
+    if q:
+        stmt = stmt.where(
+            GlobeDomain.name.ilike(f"%{_like_escape(q)}%", escape="\\")
+        )
+    rows = (
+        await db.execute(stmt.order_by(GlobeDomain.name).limit(50))
+    ).scalars().all()
+    return {"domains": list(rows)}
+
+
 # ─────────────────────── contributions ───────────────────────────────────
 
 async def create_zone(
     user_id: UUID, domain: str, title: str, db: AsyncSession
 ) -> dict:
     await _assert_profile(user_id, db)
-    zone = GlobeZone(domain=domain, title=title, author_user_id=user_id)
+    canonical = await get_or_create_domain(domain, db)
+    zone = GlobeZone(domain=canonical, title=title, author_user_id=user_id)
     db.add(zone)
     await db.commit()
     await db.refresh(zone)

@@ -10,15 +10,10 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, ENUM, UUID
+from sqlalchemy.dialects.postgresql import CITEXT, UUID
 from sqlalchemy.sql import func
 
 from app.database import Base
-
-GLOBE_DOMAINS = ("startup", "ai", "finance", "career", "programming", "health")
-
-# Type is created by the migration; the model must not re-emit CREATE TYPE.
-globe_domain_enum = ENUM(*GLOBE_DOMAINS, name="globe_domain", create_type=False)
 
 
 class GlobeProfile(Base):
@@ -49,7 +44,7 @@ class GlobeZone(Base):
     __tablename__ = "globe_zones"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    domain = Column(globe_domain_enum, nullable=False)
+    domain = Column(Text, nullable=False)
     title = Column(Text, nullable=False)
     author_user_id = Column(
         UUID(as_uuid=True),
@@ -162,4 +157,14 @@ class GlobeHiddenZone(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "zone_id", name="uq_globe_hidden_user_zone"),
         Index("ix_globe_hidden_user", "user_id"),
+    )
+
+
+class GlobeDomain(Base):
+    __tablename__ = "globe_domains"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(CITEXT(), nullable=False, unique=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
