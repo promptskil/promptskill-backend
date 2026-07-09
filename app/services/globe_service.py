@@ -248,6 +248,44 @@ async def edit_reply(
     return {"id": reply.id, "body": reply.body}
 
 
+async def delete_post(user_id: UUID, post_id: UUID, db: AsyncSession) -> dict:
+    post = (
+        await db.execute(
+            select(GlobePost).where(
+                GlobePost.id == post_id,
+                GlobePost.author_user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "post not found"},
+        )
+    await db.delete(post)  # replies cascade via FK
+    await db.commit()
+    return {"id": post_id, "deleted": True}
+
+
+async def delete_reply(user_id: UUID, reply_id: UUID, db: AsyncSession) -> dict:
+    reply = (
+        await db.execute(
+            select(GlobeReply).where(
+                GlobeReply.id == reply_id,
+                GlobeReply.author_user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if reply is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "reply not found"},
+        )
+    await db.delete(reply)  # nested replies cascade via self-FK
+    await db.commit()
+    return {"id": reply_id, "deleted": True}
+
+
 # ─────────────────────── hide / unhide (personal) ────────────────────────
 
 async def hide_zone(user_id: UUID, zone_id: UUID, db: AsyncSession) -> dict:
