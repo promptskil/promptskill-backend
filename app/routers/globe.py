@@ -68,6 +68,15 @@ async def list_zones(
     return GlobeZonesResponse(**result)
 
 
+@router.get("/zones/hidden", response_model=GlobeZonesResponse)
+async def list_hidden_zones(
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeZonesResponse:
+    result = await globe_service.get_hidden_zones(user_id, db)
+    return GlobeZonesResponse(**result)
+
+
 @router.post("/zones", response_model=GlobeZoneOut)
 @limiter.limit("30/hour")
 async def create_zone(

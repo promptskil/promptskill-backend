@@ -329,6 +329,23 @@ async def get_zones(
     }
 
 
+async def get_hidden_zones(user_id: UUID, db: AsyncSession) -> dict:
+    rows = (
+        await db.execute(
+            select(GlobeZone)
+            .join(GlobeHiddenZone, GlobeHiddenZone.zone_id == GlobeZone.id)
+            .where(GlobeHiddenZone.user_id == user_id)
+            .order_by(GlobeHiddenZone.created_at.desc())
+        )
+    ).scalars().all()
+    return {
+        "zones": [
+            {"id": r.id, "title": r.title, "created_at": r.created_at}
+            for r in rows
+        ]
+    }
+
+
 async def get_thread(
     zone_id: UUID, limit: int, offset: int, db: AsyncSession
 ) -> dict:
