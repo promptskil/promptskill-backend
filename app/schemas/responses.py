@@ -183,3 +183,8 @@ class GlobeEditedResponse(BaseModel):
 class GlobeHideResponse(BaseModel):
     zone_id: UUID
     hidden: bool
+
+
+class GlobeDeletedResponse(BaseModel):
+    id: UUID
+    deleted: bool
