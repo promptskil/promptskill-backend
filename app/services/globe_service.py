@@ -236,7 +236,7 @@ async def get_thread(
 ) -> dict:
     _validate_page(limit, offset)
     zone = (
-        await db.execute(select(GlobeZone.id).where(GlobeZone.id == zone_id))
+        await db.execute(select(GlobeZone).where(GlobeZone.id == zone_id))
     ).scalar_one_or_none()
     if zone is None:
         raise HTTPException(
@@ -278,6 +278,11 @@ async def get_thread(
                 }
             )
     return {
+        "zone": {
+            "id": zone.id,
+            "title": zone.title,
+            "created_at": zone.created_at,
+        },
         "posts": [
             {
                 "id": post.id,
@@ -287,5 +292,5 @@ async def get_thread(
                 "replies": replies_by_post[post.id],
             }
             for post, username in post_rows
-        ]
+        ],
     }
