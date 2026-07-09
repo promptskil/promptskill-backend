@@ -171,4 +171,5 @@ class GlobePostOut(BaseModel):
 
 
 class GlobePostsResponse(BaseModel):
+    zone: GlobeZoneOut
     posts: list[GlobePostOut]
