@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     VAINE_MODEL: str = ""  # fine-tune id; set after Phase 4.2
     VAINE_ENABLED: bool = False  # master flag, default OFF (D-3)
     VAINE_LEARNER_ENABLED: bool = False  # flywheel (Phase 8); off
+    MODAL_KEY: str = ""  # Modal proxy-auth token id (wk-...); set in .env / Railway
+    MODAL_SECRET: str = ""  # Modal proxy-auth token secret (ws-...); .env / Railway
 
 
 settings = Settings()
