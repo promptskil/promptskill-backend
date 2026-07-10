@@ -32,6 +32,7 @@ for line in open(os.path.join(BASE, "vaine-dataset.jsonl"), encoding="utf-8"):
     rows += 1
     strong = strengthen(r["target_rewrite"], profile, lexicon)
     final = format_prompt(strong, profile)
-    assert set(content_words(final)) <= set(content_words(strong)), f"{r['id']} added content"
+    extra = set(content_words(final)) - set(content_words(strong))
+    assert all(w in {"task", "requirements"} or w.isdigit() for w in extra), f"{r['id']} added: {extra}"
 
 print(f"OK — format is structure-only; strengthen->format chain deterministic on all {rows} rows.")

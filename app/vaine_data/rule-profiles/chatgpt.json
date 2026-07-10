@@ -1,8 +1,8 @@
 {
-  "model": "claude",
-  "version": "v2",
-  "status": "G1 rule profile — first model. Strength SET maps base-lexicon keys -> per-model strong values; format_template.structure drives the deterministic structure applied AFTER the Strengthener. Strong words confirmed by Jeremie 2026-07-05. v2: structure=xml (2026-07-10).",
-  "note": "Keys must match base-lexicon.json (BL3: keys model-agnostic, strong values live here). The Strengthener substitutes only on a key + guard match (BL2); strip_only terms are removed, not replaced (no safe 1:1 swap).",
+  "model": "chatgpt",
+  "version": "v1 (provisional)",
+  "status": "G1 fan-out (2026-07-10). Shared strength SET (model-agnostic strong words, BL3); structure=numbered per Jeremie. Per-model strong VALUES = v2.",
+  "note": "Keys match base-lexicon.json (BL3: model-agnostic). Strengthener substitutes on key+guard match; strip_only removed, not replaced.",
   "strength_set": {
     "good": "rigorous",
     "nice": "refined",
@@ -33,7 +33,7 @@
   "strip_only": ["very", "really", "kind of", "thing"],
   "format_template": {
     "version": "v2",
-    "structure": "xml",
+    "structure": "numbered",
     "rules": [
       "Present the content as one clean instruction; append constraints as a trailing sentence.",
       "Strip filler; no preamble.",
