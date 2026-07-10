@@ -181,6 +181,27 @@ async def test_verify_email_code_expired_returns_400(client, db_session):
     assert r.json()["detail"]["error"] == "code_expired"
 
 
+async def test_verify_email_code_limiter_enabled_returns_200(
+    client, db_session, rate_limit_enabled
+):
+    """Regression: slowapi injects rate-limit headers into `response`, so
+    the endpoint must declare `response: Response` or it 500s in prod. CI
+    runs with the limiter disabled, so this path is otherwise untested.
+    """
+    email = "router-limiter@test.com"
+    await client.post(
+        "/auth/signup",
+        json={"email": email, "password": "password123"},
+    )
+    vt = await _verification_token_for(db_session, email)
+    r = await client.post(
+        "/auth/verify-email-code",
+        json={"email": email, "code": vt.token},
+    )
+    assert r.status_code == 200
+    assert r.json()["success"] is True
+
+
 async def test_login_invalid_credentials_returns_401(client):
     """Email-enumeration guard — uniform 401 regardless of cause."""
     r = await client.post(
