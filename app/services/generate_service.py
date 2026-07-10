@@ -231,7 +231,7 @@ async def _vaine_path(
                 "message": "Generation timed out. Try again or use a shorter topic.",
             },
         )
-    prompt_text = _strip_xml_tags(result["prompt"])
+    prompt_text = result["prompt"]  # Format Filter owns structure; no strip here
     prompt = Prompt(
         user_id=user_id,
         model=model,
