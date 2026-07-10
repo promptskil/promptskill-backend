@@ -69,6 +69,10 @@ async def agenerate(
     client = openai.AsyncOpenAI(
         api_key=settings.TOGETHER_API_KEY,
         base_url=settings.VAINE_BASE_URL,
+        default_headers={
+            "Modal-Key": settings.MODAL_KEY,
+            "Modal-Secret": settings.MODAL_SECRET,
+        },
         timeout=timeout_s,
     )
     try:
