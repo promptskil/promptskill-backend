@@ -14,6 +14,7 @@ from app.routers import generate as generate_router
 from app.routers import globe as globe_router
 from app.routers import history as history_router
 from app.routers import invite as invite_router
+from app.routers import run as run_router
 from app.routers import stripe_webhook as stripe_webhook_router
 from app.routers import user as user_router
 from app.routers import webhooks as webhooks_router
@@ -89,6 +90,7 @@ async def _load_registry_on_startup() -> None:
 # Routers
 app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 app.include_router(generate_router.router, tags=["generate"])
+app.include_router(run_router.router, tags=["run"])
 app.include_router(history_router.router, tags=["history"])
 app.include_router(user_router.router, tags=["user"])
 
