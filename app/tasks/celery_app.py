@@ -7,11 +7,17 @@ Beat:     intentionally omitted until referenced tasks exist.
 Sync/async rule: full-stack-engineer L948-L954.
 """
 import os
+import ssl
 
 from celery import Celery
 from celery.schedules import crontab
 
 _BROKER = os.getenv("REDIS_URL", "memory://")
+# Upstash uses rediss:// (TLS). Without explicit SSL options Celery falls back to
+# UNVERIFIED TLS; require cert verification for real (rediss) brokers only.
+_BROKER_SSL = (
+    {"ssl_cert_reqs": ssl.CERT_REQUIRED} if _BROKER.startswith("rediss://") else None
+)
 
 celery_app = Celery(
     "promptskill",
@@ -37,6 +43,7 @@ celery_app.conf.update(
     enable_utc=True,
     task_always_eager=False,
     broker_connection_retry_on_startup=True,
+    broker_use_ssl=_BROKER_SSL,
     beat_schedule={
         "weekly-purge": {
             "task": "purge_job_task",
