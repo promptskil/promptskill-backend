@@ -28,6 +28,11 @@ class GenerateResponse(BaseModel):
     metadata: dict | None = None  # Vaine path: {engine, class}; legacy: None
 
 
+class RunResponse(BaseModel):
+    model: str
+    answer: str
+
+
 class CheckoutResponse(BaseModel):
     url: str
 

@@ -42,6 +42,11 @@ class GenerateRequest(BaseModel):
     refinement: str | None = Field(default=None, max_length=500)
 
 
+class RunRequest(BaseModel):
+    model: Literal["chatgpt", "claude-sonnet", "claude-opus", "gemini", "grok"]
+    text: str = Field(min_length=1, max_length=8000)
+
+
 class FeedbackRequest(BaseModel):
     prompt_id: UUID
     vote: Literal["up", "down"]
