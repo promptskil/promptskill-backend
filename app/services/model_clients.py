@@ -158,6 +158,10 @@ class OpenAIClient(ModelClient):
         """Override in subclasses for different env vars."""
         return settings.OPENAI_API_KEY
 
+    def _token_param(self) -> str:
+        """GPT-5 family requires max_completion_tokens, not max_tokens."""
+        return "max_completion_tokens"
+
     async def agenerate(
         self,
         system_prompt: str,
@@ -172,11 +176,11 @@ class OpenAIClient(ModelClient):
         try:
             response = await client.chat.completions.create(
                 model=model_id,
-                max_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
+                **{self._token_param(): max_tokens},
             )
             text = response.choices[0].message.content
             if not text:
@@ -203,11 +207,11 @@ class OpenAIClient(ModelClient):
         try:
             response = client.chat.completions.create(
                 model=model_id,
-                max_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
+                **{self._token_param(): max_tokens},
             )
             text = response.choices[0].message.content
             if not text:
@@ -307,6 +311,9 @@ class GrokClient(OpenAIClient):
 
     def _get_api_key(self) -> str:
         return settings.XAI_API_KEY
+
+    def _token_param(self) -> str:
+        return "max_tokens"  # xAI still accepts the classic param (Grok works today)
 
 
 # ─────────────────── Client registry ──────────────────────────
