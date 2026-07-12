@@ -21,32 +21,6 @@ async def test_uncapped_success():
     assert result == {"model": "chatgpt", "answer": "hi"}
 
 
-async def test_opus_under_cap_counts_success():
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value=None)
-    redis.incr = AsyncMock(return_value=1)
-    redis.expire = AsyncMock()
-    with patch.object(run_service, "_redis", redis), patch.object(
-        run_service, "get_client", return_value=_client("a")
-    ):
-        result = await run_service.run_prompt("claude-opus", "p", uuid4())
-    assert result["answer"] == "a"
-    redis.incr.assert_awaited_once()
-    redis.expire.assert_awaited_once()  # first success sets the 24h TTL
-
-
-async def test_opus_at_cap_rejects_before_provider():
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value="2")
-    with patch.object(run_service, "_redis", redis), patch.object(
-        run_service, "get_client"
-    ) as get_client:
-        with pytest.raises(HTTPException) as exc:
-            await run_service.run_prompt("claude-opus", "p", uuid4())
-    assert exc.value.status_code == 429
-    get_client.assert_not_called()  # cap blocks before any paid call
-
-
 async def test_provider_error_maps_502():
     c = AsyncMock()
     c.agenerate = AsyncMock(

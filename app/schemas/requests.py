@@ -43,7 +43,7 @@ class GenerateRequest(BaseModel):
 
 
 class RunRequest(BaseModel):
-    model: Literal["chatgpt", "claude-sonnet", "claude-opus", "gemini", "grok"]
+    model: Literal["chatgpt", "claude-sonnet", "gemini", "grok"]
     text: str = Field(min_length=1, max_length=8000)
 
 
