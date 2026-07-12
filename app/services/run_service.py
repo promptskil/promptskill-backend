@@ -24,13 +24,12 @@ logger = logging.getLogger(__name__)
 MODEL_MAP: dict[str, tuple[str, str]] = {
     "chatgpt": ("openai", "gpt-5.5"),
     "claude-sonnet": ("anthropic", "claude-sonnet-5"),
-    "claude-opus": ("anthropic", "claude-opus-4-8"),
     "gemini": ("gemini", "gemini-3.5-flash"),
     "grok": ("xai", "grok-4.5"),
 }
 
-# Per-user daily caps (UTC day) on expensive models. Others: hourly limit only.
-DAILY_CAPS: dict[str, int] = {"claude-opus": 2}
+# Per-user daily caps (UTC day) on expensive models. Empty now — none capped.
+DAILY_CAPS: dict[str, int] = {}
 
 _SYSTEM_PROMPT = (
     "You are a rigorous reasoning assistant. Enforce these rules in memory "
