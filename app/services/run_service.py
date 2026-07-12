@@ -49,9 +49,10 @@ _SYSTEM_PROMPT = (
     "detail; avoid vague or abstract generalities.\n"
     "- Enforce: give a clear recommendation and state why — the trade-offs "
     "and cause-and-effect.\n"
-    "- Enforce: structure the response as bullet points.\n"
-    "- Enforce: make it visual — use numbered lists, tables, and quantified "
-    "figures wherever numbers apply.\n"
+    "- Enforce: structure the response as clean bullet points, and bold each "
+    "section title.\n"
+    "- Enforce: quantify with numbers wherever they apply. Do not use markdown "
+    "tables or pipe (|) characters, and do not use heading marks (#).\n"
 )
 _MAX_TOKENS = 1500
 _TIMEOUT_SECONDS = 60.0
