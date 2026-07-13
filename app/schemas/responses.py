@@ -151,6 +151,7 @@ class GlobeUsernameResponse(BaseModel):
 
 class GlobeZoneOut(BaseModel):
     id: UUID
+    domain: str
     title: str
     created_at: datetime
 
