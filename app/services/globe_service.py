@@ -211,7 +211,12 @@ async def create_zone(
     db.add(zone)
     await db.commit()
     await db.refresh(zone)
-    return {"id": zone.id, "title": zone.title, "created_at": zone.created_at}
+    return {
+        "id": zone.id,
+        "domain": zone.domain,
+        "title": zone.title,
+        "created_at": zone.created_at,
+    }
 
 
 async def create_post(
@@ -448,7 +453,12 @@ async def get_zones(
     ).scalars().all()
     return {
         "zones": [
-            {"id": r.id, "title": r.title, "created_at": r.created_at}
+            {
+                "id": r.id,
+                "domain": r.domain,
+                "title": r.title,
+                "created_at": r.created_at,
+            }
             for r in rows
         ]
     }
@@ -465,7 +475,12 @@ async def get_hidden_zones(user_id: UUID, db: AsyncSession) -> dict:
     ).scalars().all()
     return {
         "zones": [
-            {"id": r.id, "title": r.title, "created_at": r.created_at}
+            {
+                "id": r.id,
+                "domain": r.domain,
+                "title": r.title,
+                "created_at": r.created_at,
+            }
             for r in rows
         ]
     }
@@ -520,6 +535,7 @@ async def get_thread(
     return {
         "zone": {
             "id": zone.id,
+            "domain": zone.domain,
             "title": zone.title,
             "created_at": zone.created_at,
         },
