@@ -157,6 +157,47 @@ async def list_domains(q: str | None, db: AsyncSession) -> dict:
     return {"domains": list(rows)}
 
 
+async def get_feed(
+    user_id: UUID, limit: int, offset: int, db: AsyncSession
+) -> dict:
+    """Cross-zone post feed: top-level posts from all non-hidden zones,
+    newest first, each carrying its zone title + author username."""
+    _validate_page(limit, offset)
+    hidden = select(GlobeHiddenZone.zone_id).where(
+        GlobeHiddenZone.user_id == user_id
+    )
+    stmt = (
+        select(
+            GlobePost.id,
+            GlobePost.zone_id,
+            GlobeZone.title,
+            GlobeProfile.username,
+            GlobePost.body,
+            GlobePost.created_at,
+        )
+        .join(GlobeZone, GlobeZone.id == GlobePost.zone_id)
+        .join(GlobeProfile, GlobeProfile.user_id == GlobePost.author_user_id)
+        .where(GlobePost.zone_id.notin_(hidden))
+        .order_by(GlobePost.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await db.execute(stmt)).all()
+    return {
+        "items": [
+            {
+                "post_id": r.id,
+                "zone_id": r.zone_id,
+                "zone_title": r.title,
+                "author_username": r.username,
+                "body": r.body,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ]
+    }
+
+
 # ─────────────────────── contributions ───────────────────────────────────
 
 async def create_zone(
