@@ -18,6 +18,7 @@ from app.schemas import (
     GlobeDomainsResponse,
     GlobeEditedResponse,
     GlobeEditRequest,
+    GlobeFeedResponse,
     GlobeHideResponse,
     GlobeMeResponse,
     GlobePostCreateRequest,
@@ -68,6 +69,17 @@ async def list_zones(
 ) -> GlobeZonesResponse:
     result = await globe_service.get_zones(user_id, limit, offset, q, db)
     return GlobeZonesResponse(**result)
+
+
+@router.get("/feed", response_model=GlobeFeedResponse)
+async def feed(
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeFeedResponse:
+    result = await globe_service.get_feed(user_id, limit, offset, db)
+    return GlobeFeedResponse(**result)
 
 
 @router.get("/zones/hidden", response_model=GlobeZonesResponse)
