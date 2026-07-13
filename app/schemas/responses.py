@@ -203,6 +203,7 @@ class GlobeFeedItem(BaseModel):
     post_id: UUID
     zone_id: UUID
     zone_title: str
+    zone_domain: str
     author_username: str
     body: str
     created_at: datetime
