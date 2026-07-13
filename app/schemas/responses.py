@@ -197,3 +197,16 @@ class GlobeDeletedResponse(BaseModel):
 
 class GlobeDomainsResponse(BaseModel):
     domains: list[str]
+
+
+class GlobeFeedItem(BaseModel):
+    post_id: UUID
+    zone_id: UUID
+    zone_title: str
+    author_username: str
+    body: str
+    created_at: datetime
+
+
+class GlobeFeedResponse(BaseModel):
+    items: list[GlobeFeedItem]
