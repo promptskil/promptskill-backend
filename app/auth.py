@@ -11,7 +11,6 @@ from app.config import settings
 from app.database import get_db
 from app.models import Session as SessionModel
 from app.models import User
-from app.models.user import AccountType
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -103,12 +102,7 @@ async def require_active_subscription(
     user_id: UUID = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UUID:
-    """Gate paid features.
-
-    Individual accounts need an active/trialing subscription. Business
-    accounts (admin/employee) are governed by org status gates, not Stripe,
-    so they bypass this paywall.
-    """
+    """Gate paid features — an active/trialing subscription is required."""
     if not settings.PAYWALL_ENABLED:
         return user_id  # paywall disabled — no gating
     result = await db.execute(select(User).where(User.id == user_id))
@@ -118,8 +112,6 @@ async def require_active_subscription(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    if user.account_type != AccountType.individual:
-        return user_id  # business accounts bypass the Stripe paywall
     if not _subscription_active(user):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,

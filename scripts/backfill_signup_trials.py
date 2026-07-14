@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
-from app.models.user import AccountType, User
+from app.models.user import User
 
 
 def _db_url() -> str:
@@ -26,7 +26,6 @@ def _as_utc(value: datetime) -> datetime:
 async def _eligible_users(db: AsyncSession) -> list[User]:
     result = await db.execute(
         select(User)
-        .where(User.account_type == AccountType.individual)
         .where(User.subscription_status.is_(None))
         .where(User.subscription_source.is_(None))
         .where(User.stripe_subscription_id.is_(None))

@@ -12,3 +12,10 @@ htmlcov/
 venv/
 .venv/
 .DS_Store
+
+vaine-v2-adapter
+vaine-v2-x/
+scripts/verify_baseten.py
+
+vaine-v2-adapter
+vaine-v2-x/

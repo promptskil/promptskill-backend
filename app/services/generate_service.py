@@ -212,7 +212,6 @@ async def _vaine_path(
     topic: str,
     user_id: uuid.UUID,
     app_version: str,
-    business_id: uuid.UUID | None,
     db: AsyncSession,
 ) -> dict:
     """VAINE_ENABLED path: fine-tuned engine + deterministic tail, then the
@@ -240,7 +239,6 @@ async def _vaine_path(
         system_prompt_version=_VAINE_VERSION,
         app_version=app_version,
         feedback_vote=None,
-        business_id=business_id,
     )
     db.add(prompt)
     await db.commit()
@@ -282,7 +280,6 @@ async def generate_prompt(
     user_id: uuid.UUID,
     app_version: str,
     db: AsyncSession,
-    business_id: uuid.UUID | None = None,
     refinement: str | None = None,
 ) -> dict:
     """Orchestrate a single /generate call.
@@ -298,7 +295,7 @@ async def generate_prompt(
     # Vaine path (flag-gated, dual-run). Legacy provider path below is untouched.
     if settings.VAINE_ENABLED:
         return await _vaine_path(
-            model, topic, user_id, app_version, business_id, db
+            model, topic, user_id, app_version, db
         )
 
     # Build user message — composes original topic + refinement (Layer 7 v2)
@@ -405,7 +402,6 @@ async def generate_prompt(
         system_prompt_version=config["version"],
         app_version=app_version,
         feedback_vote=None,
-        business_id=business_id,
     )
     db.add(prompt)
     await db.commit()
