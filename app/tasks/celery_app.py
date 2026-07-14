@@ -28,7 +28,6 @@ celery_app = Celery(
         "app.tasks.purge_task",
         "app.tasks.generate_task",
         "app.tasks.welcome_email_task",
-        "app.tasks.business_invite_email_task",
         "app.tasks.reconcile_task",
         "app.tasks.verification_email_task",
         "app.tasks.learn_task",

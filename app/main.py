@@ -9,11 +9,9 @@ from app.exceptions import validation_exception_handler
 from app.rate_limit import limiter
 from app.routers import auth as auth_router
 from app.routers import billing as billing_router
-from app.routers import business as business_router
 from app.routers import generate as generate_router
 from app.routers import globe as globe_router
 from app.routers import history as history_router
-from app.routers import invite as invite_router
 from app.routers import run as run_router
 from app.routers import stripe_webhook as stripe_webhook_router
 from app.routers import user as user_router
@@ -59,7 +57,6 @@ _ALLOWED_ORIGINS = [
     "chrome-extension://kgjcnldjmhbploedmijadigchnociecg",  # Vaine extension
     "https://www.vaineai.com",                               # Web app (www)
     "https://vaineai.com",                                   # Web app (apex)
-    "https://business.vaineai.com",                          # Business subdomain
     "http://localhost:5173",                                 # Local dev — Vite
     "http://localhost:3000",                                 # Local dev — alt
 ]
@@ -105,17 +102,6 @@ app.include_router(stripe_webhook_router.router)
 
 # Apple webhook (App Store Server Notifications v2; carries its own /webhooks prefix)
 app.include_router(webhooks_router.router)
-
-# Business / organization layer
-app.include_router(
-    business_router.router,
-    prefix="/business",
-    tags=["business"],
-)
-
-# Invite acceptance (top-level, no prefix — matches email URL path)
-app.include_router(invite_router.router, tags=["invite"])
-
 
 @app.get("/health")
 async def health():

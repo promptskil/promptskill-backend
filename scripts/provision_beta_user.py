@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.models.reset_token import PasswordResetToken
-from app.models.user import AccountType, User
+from app.models.user import User
 
 # Beta onboarding link lives a week so testers have time to set a password.
 RESET_TOKEN_HOURS = 168
@@ -71,7 +71,6 @@ async def _provision(
         user = User(
             email=email,
             password_hash=_unusable_password_hash(),
-            account_type=AccountType.individual,
         )
         db.add(user)
         await db.flush()  # populate user.id
@@ -86,11 +85,6 @@ async def _provision(
         reset_url = f"{base_url}/reset-password?token={token}"
         created = True
     else:
-        if user.account_type != AccountType.individual:
-            raise ValueError(
-                f"{email} is account_type={user.account_type.value}, "
-                "not individual — refusing to comp."
-            )
         if user.stripe_customer_id and not force:
             raise ValueError(
                 f"{email} is a Stripe customer — refusing to relabel as "

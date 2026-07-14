@@ -14,9 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import _subscription_active
 from app.config import settings
 from app.models import EmailVerificationToken, PasswordResetToken, Session, User
-from app.models.business import Business, BusinessStatus
-from app.models.business_member import BusinessMember
-from app.models.user import AccountType, UserStatus
+from app.models.user import UserStatus
 from app.tasks.email_task import send_reset_email_task
 from app.tasks.verification_email_task import send_verification_email_task
 
@@ -235,11 +233,11 @@ async def resend_verification(email: str, db: AsyncSession) -> None:
 
 async def authenticate(
     email: str, password: str, db: AsyncSession
-) -> tuple[User, UUID | None]:
-    """Verify credentials + access gates + resolve org context.
+) -> User:
+    """Verify credentials + access gates.
 
     Does NOT issue a session — callers decide whether to mint one. Raises
-    the same 401/403 as the original login. Returns (user, business_id).
+    401 on bad credentials, 403 on unverified email or a disabled account.
     """
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -263,11 +261,9 @@ async def authenticate(
             },
         )
 
-    # User-level access gate — applies to every account_type
-    # (individual | admin | employee). Checked after credential
-    # verification (so it never leaks account existence) and BEFORE the
-    # org gate. Independent of businesses.status: both must be active to
-    # log in, and re-enabling an org never un-blocks a disabled user.
+    # User-level access gate — the owner can disable any account's login
+    # (via set_user_access). Checked after credential verification so it
+    # never leaks account existence.
     if user.status == UserStatus.disabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -280,41 +276,7 @@ async def authenticate(
             },
         )
 
-    # Resolve org context for business accounts; enforce suspension.
-    business_id = None
-    if user.account_type in (AccountType.admin, AccountType.employee):
-        membership = (
-            await db.execute(
-                select(BusinessMember).where(
-                    BusinessMember.user_id == user.id
-                )
-            )
-        ).scalar_one_or_none()
-        if membership is not None:
-            business = (
-                await db.execute(
-                    select(Business).where(
-                        Business.id == membership.business_id
-                    )
-                )
-            ).scalar_one_or_none()
-            if (
-                business is not None
-                and business.status == BusinessStatus.disabled
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail={
-                        "error": "access_disabled",
-                        "message": (
-                            "Access to this organization is disabled. "
-                            "Contact your owner."
-                        ),
-                    },
-                )
-            business_id = membership.business_id
-
-    return user, business_id
+    return user
 
 
 async def issue_session(user_id: UUID, db: AsyncSession) -> str:
@@ -331,47 +293,16 @@ async def issue_session(user_id: UUID, db: AsyncSession) -> str:
 
 
 def _checkout_required(user: User) -> bool:
-    if user.account_type != AccountType.individual:
-        return False
     return not _subscription_active(user)
 
 
 async def login(email: str, password: str, db: AsyncSession) -> dict:
-    user, business_id = await authenticate(email, password, db)
+    user = await authenticate(email, password, db)
     token = await issue_session(user.id, db)
     return {
         "token": token,
         "user_id": user.id,
-        "account_type": user.account_type.value,
-        "business_id": business_id,
         "checkout_required": _checkout_required(user),
-    }
-
-
-async def business_login(email: str, password: str, db: AsyncSession) -> dict:
-    """Business-surface login. Individual accounts are rejected BEFORE a
-    session is issued — no token, no session row. The fundamental
-    /auth/login is unaffected (individuals still log in there).
-    """
-    user, business_id = await authenticate(email, password, db)
-    if user.account_type == AccountType.individual:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "individual_not_permitted",
-                "message": (
-                    "This login is for business accounts. "
-                    "Use the email you were invited with."
-                ),
-            },
-        )
-    token = await issue_session(user.id, db)
-    return {
-        "token": token,
-        "user_id": user.id,
-        "account_type": user.account_type.value,
-        "business_id": business_id,
-        "checkout_required": False,
     }
 
 

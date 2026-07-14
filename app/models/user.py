@@ -9,12 +9,6 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 
-class AccountType(str, enum.Enum):
-    individual = "individual"
-    admin = "admin"
-    employee = "employee"
-
-
 class UserStatus(str, enum.Enum):
     active = "active"
     disabled = "disabled"
@@ -28,11 +22,6 @@ class User(Base):
     )
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
-    account_type = Column(
-        Enum(AccountType, name="account_type"),
-        nullable=False,
-        server_default=AccountType.individual.value,
-    )
     status = Column(
         Enum(UserStatus, name="user_status"),
         nullable=False,
@@ -73,13 +62,4 @@ class User(Base):
         "EmailVerificationToken",
         back_populates="user",
         cascade="all, delete-orphan",
-    )
-    business = relationship(
-        "Business", back_populates="owner", uselist=False, passive_deletes=True
-    )
-    business_memberships = relationship(
-        "BusinessMember", back_populates="user", cascade="all, delete-orphan"
-    )
-    business_invites_sent = relationship(
-        "BusinessInvite", back_populates="invited_by", passive_deletes=True
     )
