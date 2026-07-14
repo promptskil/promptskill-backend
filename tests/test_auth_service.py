@@ -114,8 +114,6 @@ async def test_login_happy_path(db_session):
     )
     assert result["user_id"] == signup_user_id
     assert len(result["token"]) > 100
-    assert result["account_type"] == "individual"
-    assert result["business_id"] is None
 
     # Signup does not issue a session; login creates the first one.
     result = await db_session.execute(

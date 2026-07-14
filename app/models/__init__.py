@@ -1,7 +1,4 @@
 from app.database import Base
-from app.models.business import Business
-from app.models.business_invite import BusinessInvite
-from app.models.business_member import BusinessMember
 from app.models.dead_letter_email import DeadLetterEmail
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.globe import (
@@ -26,9 +23,6 @@ __all__ = [
     "Prompt",
     "PromptVote",
     "DeadLetterEmail",
-    "Business",
-    "BusinessMember",
-    "BusinessInvite",
     "GlobeProfile",
     "GlobeZone",
     "GlobePost",

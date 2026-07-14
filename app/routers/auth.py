@@ -40,17 +40,6 @@ async def login(
     return LoginResponse(**result)
 
 
-@router.post("/business/login", response_model=LoginResponse)
-async def business_login(
-    body: LoginRequest,
-    db: AsyncSession = Depends(get_db),
-) -> LoginResponse:
-    # Additive surface — rejects individual accounts before a session is
-    # issued. /auth/login (the fundamental) is unchanged.
-    result = await auth_service.business_login(body.email, body.password, db)
-    return LoginResponse(**result)
-
-
 @router.post("/logout")
 async def logout(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
