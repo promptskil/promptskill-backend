@@ -12,7 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.database import get_db
 from app.main import app
-from app.models.user import AccountType, User
+from app.models.user import User
 from app.services import stripe_webhook_service
 
 PERIOD_END = 1_900_000_000  # far-future unix timestamp
@@ -22,7 +22,6 @@ def _user(**kw) -> User:
     d = dict(
         email=f"{uuid4()}@test.com",
         password_hash="x",
-        account_type=AccountType.individual,
         stripe_customer_id=f"cus_{uuid4().hex[:12]}",
     )
     d.update(kw)

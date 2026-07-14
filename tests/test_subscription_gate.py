@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from app.auth import _subscription_active, require_active_subscription
 from app.config import settings
-from app.models.user import AccountType, User
+from app.models.user import User
 
 FUTURE = datetime.now(timezone.utc) + timedelta(days=5)
 PAST = datetime.now(timezone.utc) - timedelta(days=1)
@@ -28,7 +28,6 @@ def _user(**kw) -> User:
     defaults = dict(
         email=f"{uuid4()}@test.com",
         password_hash="x",
-        account_type=AccountType.individual,
     )
     defaults.update(kw)
     return User(**defaults)
@@ -96,12 +95,6 @@ async def test_individual_no_subscription_returns_402(db_session):
     with pytest.raises(HTTPException) as exc:
         await require_active_subscription(user_id=u.id, db=db_session)
     assert exc.value.status_code == 402
-
-
-@pytest.mark.parametrize("acct", [AccountType.admin, AccountType.employee])
-async def test_business_accounts_bypass_paywall(db_session, acct):
-    u = await _persist(db_session, _user(account_type=acct))  # no subscription
-    assert await require_active_subscription(user_id=u.id, db=db_session) == u.id
 
 
 async def test_user_not_found_returns_401(db_session):

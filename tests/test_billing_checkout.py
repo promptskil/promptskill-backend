@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.database import get_db
 from app.main import app
-from app.models.user import AccountType, User
+from app.models.user import User
 from app.services import billing_service
 from tests.auth_helpers import signup_verify_login
 
@@ -16,7 +16,6 @@ def _user(**kw) -> User:
     d = dict(
         email=f"{uuid4()}@test.com",
         password_hash="x",
-        account_type=AccountType.individual,
     )
     d.update(kw)
     return User(**d)
