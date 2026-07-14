@@ -12,10 +12,12 @@
 Errors follow the repo contract: HTTPException {error, message}; 404-not-403
 on missing zone/post. Browsing (reads) requires no profile.
 """
+import base64
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -157,14 +159,32 @@ async def list_domains(q: str | None, db: AsyncSession) -> dict:
     return {"domains": list(rows)}
 
 
+def _encode_cursor(created_at: datetime, post_id: UUID) -> str:
+    raw = f"{created_at.isoformat()}|{post_id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        ts_str, id_str = raw.split("|", 1)
+        return datetime.fromisoformat(ts_str), UUID(id_str)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "bad_cursor", "message": "invalid cursor"},
+        ) from exc
+
+
 async def get_feed(
-    user_id: UUID, limit: int, offset: int, db: AsyncSession
+    user_id: UUID, limit: int, cursor: str | None, db: AsyncSession
 ) -> dict:
     """Cross-zone post feed: top-level posts from all non-hidden zones,
-    newest first, each carrying its zone title + author username."""
-    _validate_page(limit, offset)
-    hidden = select(GlobeHiddenZone.zone_id).where(
-        GlobeHiddenZone.user_id == user_id
+    newest first, keyset-paginated on (created_at, id). Each row carries its
+    zone title/domain + author username."""
+    hidden = exists().where(
+        (GlobeHiddenZone.user_id == user_id)
+        & (GlobeHiddenZone.zone_id == GlobePost.zone_id)
     )
     stmt = (
         select(
@@ -178,26 +198,35 @@ async def get_feed(
         )
         .join(GlobeZone, GlobeZone.id == GlobePost.zone_id)
         .join(GlobeProfile, GlobeProfile.user_id == GlobePost.author_user_id)
-        .where(GlobePost.zone_id.notin_(hidden))
-        .order_by(GlobePost.created_at.desc())
-        .limit(limit)
-        .offset(offset)
+        .where(~hidden)
     )
+    if cursor:
+        ts, cid = _decode_cursor(cursor)
+        stmt = stmt.where(
+            tuple_(GlobePost.created_at, GlobePost.id) < tuple_(ts, cid)
+        )
+    stmt = stmt.order_by(
+        GlobePost.created_at.desc(), GlobePost.id.desc()
+    ).limit(limit)
     rows = (await db.execute(stmt)).all()
-    return {
-        "items": [
-            {
-                "post_id": r.id,
-                "zone_id": r.zone_id,
-                "zone_title": r.title,
-                "zone_domain": r.domain,
-                "author_username": r.username,
-                "body": r.body,
-                "created_at": r.created_at,
-            }
-            for r in rows
-        ]
-    }
+    items = [
+        {
+            "post_id": r.id,
+            "zone_id": r.zone_id,
+            "zone_title": r.title,
+            "zone_domain": r.domain,
+            "author_username": r.username,
+            "body": r.body,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+    next_cursor = (
+        _encode_cursor(rows[-1].created_at, rows[-1].id)
+        if len(rows) == limit
+        else None
+    )
+    return {"items": items, "next_cursor": next_cursor}
 
 
 # ─────────────────────── contributions ───────────────────────────────────

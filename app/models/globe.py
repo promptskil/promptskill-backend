@@ -91,6 +91,7 @@ class GlobePost(Base):
 
     __table_args__ = (
         Index("ix_globe_posts_zone_created", "zone_id", "created_at"),
+        Index("ix_globe_posts_created_at", text("created_at DESC")),
         Index(
             "ix_globe_posts_body_trgm",
             "body",
