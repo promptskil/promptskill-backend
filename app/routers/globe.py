@@ -74,11 +74,11 @@ async def list_zones(
 @router.get("/feed", response_model=GlobeFeedResponse)
 async def feed(
     limit: int = Query(default=20, ge=1, le=50),
-    offset: int = Query(default=0, ge=0),
+    cursor: str | None = Query(default=None, max_length=200),
     user_id: UUID = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GlobeFeedResponse:
-    result = await globe_service.get_feed(user_id, limit, offset, db)
+    result = await globe_service.get_feed(user_id, limit, cursor, db)
     return GlobeFeedResponse(**result)
 
 

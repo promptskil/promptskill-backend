@@ -212,3 +212,4 @@ class GlobeFeedItem(BaseModel):
 
 class GlobeFeedResponse(BaseModel):
     items: list[GlobeFeedItem]
+    next_cursor: str | None = None
