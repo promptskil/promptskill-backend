@@ -159,6 +159,27 @@ async def test_login_invalid_credentials(
     assert exc_info.value.detail["error"] == "invalid_credentials"
 
 
+async def test_login_missing_user_runs_dummy_bcrypt(db_session, monkeypatch):
+    """Timing side-channel guard: an absent email still runs a bcrypt compare
+    against the constant dummy hash, so a future refactor can't reintroduce
+    the short-circuit that leaked account existence via response time."""
+    calls = []
+
+    async def _spy(password, password_hash):
+        calls.append(password_hash)
+        return False
+
+    monkeypatch.setattr(auth_service, "_verify_password", _spy)
+
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.login(
+            "ghost-timing@test.com", "password123", db_session
+        )
+    assert exc.value.status_code == 401
+    assert exc.value.detail["error"] == "invalid_credentials"
+    assert calls == [auth_service._DUMMY_PASSWORD_HASH]
+
+
 # ─────────────────────── validate ───────────────────────────────────────
 
 async def test_validate_valid_token(db_session):
