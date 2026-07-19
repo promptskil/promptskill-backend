@@ -7,14 +7,14 @@ Phase 6 surface (Layer 7 v2 — multi-provider):
   generate_prompt() — POST /generate orchestration. Four terminating
   paths all converge on a single Phase 1 INSERT into `prompts`:
     1. Provider async success            → version=config['version']
-    2. ProviderRateLimitError → Celery   → version=config['version']
+    2. ProviderRateLimitError → fallback → version='fallback'
     3. ProviderAPIError → fallback       → version='fallback'
     4. asyncio.TimeoutError              → HTTPException 504 (no INSERT)
 
 Spec:
   /full-stack-engineer L401-425, L1476-1586
   /api L417-426 — config shape + 'fallback' reserved
-  /data-flow     — Flow 7, 30s ceiling, task.get(timeout=28)
+  /data-flow     — Flow 7, 30s ceiling
   /path-b-multi-provider-architecture.md — Layer 7 v2
 """
 from __future__ import annotations
@@ -27,7 +27,6 @@ import time
 import uuid
 from pathlib import Path
 
-import celery.exceptions
 import httpx
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,10 +51,6 @@ _STRIP_RE = re.compile(r'</?[a-z_]+>|\n{3,}')
 def _strip_xml_tags(text: str) -> str:
     return _STRIP_RE.sub(lambda m: '' if m.group()[0] == '<' else '\n\n', text).strip()
 
-try:
-    import sentry_sdk
-except ImportError:  # pragma: no cover
-    sentry_sdk = None  # type: ignore[assignment]
 
 MODEL_REGISTRY: dict[str, dict] = {}
 
@@ -269,7 +264,6 @@ def build_user_message(
 # ─────────────────────── Phase 6 — generate_prompt ──────────────────────
 
 _GENERATE_TIMEOUT_SECONDS = 30.0
-_CELERY_TIMEOUT_SECONDS = 28  # 2s buffer inside 30s global ceiling
 _MAX_TOKENS = 1000
 _VAINE_VERSION = "vaine-v1"  # system_prompt_version tag for the Vaine path
 
@@ -284,9 +278,9 @@ async def generate_prompt(
 ) -> dict:
     """Orchestrate a single /generate call.
 
-    Fan-in contract: Anthropic success, Celery success, and fallback
-    ALL reach the same Phase 1 INSERT at the bottom. Only asyncio
-    timeout and Celery timeout/error raise HTTPException before INSERT.
+    Fan-in contract: provider success and fallback (429 → fallback,
+    ProviderAPIError → fallback) ALL reach the same Phase 1 INSERT at
+    the bottom. Only asyncio timeout raises HTTPException before INSERT.
 
     Spec: /full-stack-engineer L1478-1583.
     """
@@ -315,44 +309,20 @@ async def generate_prompt(
             timeout=_GENERATE_TIMEOUT_SECONDS,
         )
 
-    except ProviderRateLimitError:
-        # Dispatch to Celery retry worker; API waits on result.
-        # Lazy import — breaks circular (generate_task imports MODEL_REGISTRY
-        # lazily as well).
-        from app.tasks.generate_task import generate_prompt_task
+    except ProviderRateLimitError as exc:
+        # Provider 429 → immediate deterministic fallback, no retry. Retrying
+        # inline would burn the SLA and add pressure on the same rate-limited
+        # provider. Reserved 'fallback' version excludes the row from analytics.
+        logger.warning(
+            "provider_rate_limit_fallback model=%s provider=%s error=%r",
+            model,
+            config.get("provider"),
+            str(exc),
+        )
+        from app.prompts.fallback import get_fallback
 
-        task = generate_prompt_task.delay({
-            "model": model,
-            "topic": topic,
-            "user_id": str(user_id),
-            "refinement": refinement,
-        })
-        try:
-            prompt_text = task.get(timeout=_CELERY_TIMEOUT_SECONDS)
-        except celery.exceptions.TimeoutError:
-            raise HTTPException(
-                status_code=504,
-                detail={
-                    "error": "timeout",
-                    "message": (
-                        "Generation timed out. Try again or use a "
-                        "shorter topic."
-                    ),
-                },
-            )
-        except Exception as exc:
-            if sentry_sdk is not None and settings.SENTRY_DSN:
-                try:
-                    sentry_sdk.capture_exception(exc)
-                except Exception:  # pragma: no cover
-                    pass
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "error": "server_error",
-                    "message": "Generation failed.",
-                },
-            )
+        prompt_text = get_fallback(model, topic)
+        config = {**config, "version": "fallback"}
 
     except asyncio.TimeoutError:
         raise HTTPException(
@@ -381,8 +351,8 @@ async def generate_prompt(
         config = {**config, "version": "fallback"}
 
     # ─── Phase 1 WriteOperation — single convergence point ──────────
-    # Reached from: Anthropic success, Celery success, fallback.
-    # NOT reached from: asyncio.TimeoutError, Celery timeout/error.
+    # Reached from: provider success, fallback (429 or API error).
+    # NOT reached from: asyncio.TimeoutError.
     if prompt_text is None:
         # Defensive: should be unreachable — all terminating branches
         # either set prompt_text or raise HTTPException.
@@ -391,7 +361,7 @@ async def generate_prompt(
             detail={"error": "server_error", "message": "Empty response."},
         )
 
-    # Strip XML tags from all paths — provider success, Celery, fallback.
+    # Strip XML tags from all paths — provider success, fallback.
     prompt_text = _strip_xml_tags(prompt_text)
 
     prompt = Prompt(
