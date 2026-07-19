@@ -2,24 +2,19 @@
 
 Gate coverage (from /build-checklist Step 6.2):
   - Provider success → prompt row in DB + app_version + version='v2'
-  - Celery success → prompt row + version from config (NOT 'fallback')
+  - RateLimit (ProviderRateLimitError) → fallback row, version='fallback'
   - Fallback (ProviderAPIError) → prompt row with version='fallback'
   - asyncio.TimeoutError → HTTPException 504, no row
-  - Celery TimeoutError → HTTPException 504, no row
-  - Celery other exception → HTTPException 500 + Sentry capture
 
 Mocking strategy:
   - Patch model_clients.get_client to return a mock ModelClient whose
     .agenerate is an AsyncMock with parameterized behavior.
-  - Patch app.tasks.generate_task.generate_prompt_task.delay for the
-    Celery fan-out path (test runs in-process — don't invoke eager).
   - Patch app.prompts.fallback.get_fallback for fallback-path isolation
     (real impl covered in test_model_registry.py).
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
-import celery.exceptions
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
@@ -114,24 +109,21 @@ async def test_provider_success_writes_row(db_session, test_user):
     assert row.feedback_vote is None
 
 
-# ─────────────────────── Gate 2: RateLimit → Celery success ───────────────
+# ─────────────────────── Gate 2: RateLimit → fallback ────────────────────
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_rate_limit_dispatches_to_celery_and_succeeds(
-    db_session, test_user
-):
+async def test_rate_limit_writes_fallback_version(db_session, test_user):
+    """A provider 429 falls back to the deterministic template inline —
+    no Celery, no retry — writing the reserved 'fallback' version."""
     mock_client = _mock_provider_client_rate_limited()
-
-    fake_task = MagicMock()
-    fake_task.get.return_value = "celery-recovered output"
 
     with patch(
         "app.services.generate_service.get_client",
         return_value=mock_client,
     ), patch(
-        "app.tasks.generate_task.generate_prompt_task.delay",
-        return_value=fake_task,
-    ) as delay_patch:
+        "app.prompts.fallback.get_fallback",
+        return_value="fallback for rate limit",
+    ) as fb:
         result = await generate_prompt(
             model="chatgpt",
             topic="systems thinking",
@@ -140,101 +132,16 @@ async def test_rate_limit_dispatches_to_celery_and_succeeds(
             db=db_session,
         )
 
-    assert result["prompt"] == "celery-recovered output"
-    delay_patch.assert_called_once()
-    args = delay_patch.call_args.args[0]
-    assert args["model"] == "chatgpt"
-    assert args["topic"] == "systems thinking"
-    assert args["user_id"] == str(test_user.id)
-    fake_task.get.assert_called_once_with(timeout=28)
+    fb.assert_called_once_with("chatgpt", "systems thinking")
+    assert result["prompt"] == "fallback for rate limit"
 
-    # Row written with non-fallback version from real config
     row = (
         await db_session.execute(
             select(Prompt).where(Prompt.id == UUID(result["prompt_id"]))
         )
     ).scalar_one()
-    assert row.system_prompt_version != "fallback"
-    assert row.system_prompt_version != "fallback"
-    assert row.system_prompt_version.startswith("v")
-
-
-# ─────────────────────── Gate 3: Celery timeout → 504, no row ─────────────
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_celery_timeout_raises_504_no_row(db_session, test_user):
-    mock_client = _mock_provider_client_rate_limited()
-
-    fake_task = MagicMock()
-    fake_task.get.side_effect = celery.exceptions.TimeoutError()
-
-    with patch(
-        "app.services.generate_service.get_client",
-        return_value=mock_client,
-    ), patch(
-        "app.tasks.generate_task.generate_prompt_task.delay",
-        return_value=fake_task,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await generate_prompt(
-                model="claude",
-                topic="timeout test",
-                user_id=test_user.id,
-                app_version="1.0.0",
-                db=db_session,
-            )
-
-    assert exc_info.value.status_code == 504
-    assert exc_info.value.detail["error"] == "timeout"
-
-    rows = (
-        await db_session.execute(
-            select(Prompt).where(
-                Prompt.user_id == test_user.id,
-                Prompt.topic == "timeout test",
-            )
-        )
-    ).scalars().all()
-    assert rows == []
-
-
-# ─────────────────────── Gate 4: Celery other exc → 500 + Sentry ──────────
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_celery_other_exception_500_and_sentry(
-    db_session, test_user, monkeypatch
-):
-    mock_client = _mock_provider_client_rate_limited()
-
-    fake_task = MagicMock()
-    fake_task.get.side_effect = RuntimeError("broker exploded")
-
-    monkeypatch.setattr(
-        generate_service.settings,
-        "SENTRY_DSN",
-        "https://fake@o0.ingest.sentry.io/0",
-    )
-
-    with patch(
-        "app.services.generate_service.get_client",
-        return_value=mock_client,
-    ), patch(
-        "app.tasks.generate_task.generate_prompt_task.delay",
-        return_value=fake_task,
-    ), patch.object(
-        generate_service.sentry_sdk, "capture_exception"
-    ) as cap:
-        with pytest.raises(HTTPException) as exc_info:
-            await generate_prompt(
-                model="grok",
-                topic="broker test",
-                user_id=test_user.id,
-                app_version="1.0.0",
-                db=db_session,
-            )
-
-    assert exc_info.value.status_code == 500
-    assert cap.call_count == 1
+    assert row.system_prompt_version == "fallback"
+    assert row.prompt_text == "fallback for rate limit"
 
 
 # ─────────────────────── Gate 5: asyncio timeout → 504, no row ────────────
