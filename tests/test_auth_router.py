@@ -28,7 +28,12 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.main import app
-from app.models import EmailVerificationToken, PasswordResetToken, User
+from app.models import (
+    EmailVerificationToken,
+    PasswordResetToken,
+    Session,
+    User,
+)
 from tests.auth_helpers import login_verified_user
 
 
@@ -319,3 +324,34 @@ async def test_signup_short_password_returns_400(client):
         json={"email": "short-pw@test.com", "password": "short"},
     )
     assert r.status_code == 400
+
+
+# ─────────────────────── web-origin session lifetime ────────────────────
+
+async def test_login_web_origin_gets_short_session(client, db_session):
+    """A login carrying an Origin header (browser/extension) → ~12h session,
+    not the 30-day native default. S2 interim mitigation."""
+    email = "router-web-ttl@test.com"
+    await client.post(
+        "/auth/signup", json={"email": email, "password": "password123"}
+    )
+    vt = await _verification_token_for(db_session, email)
+    await client.post(
+        "/auth/verify-email-code", json={"email": email, "code": vt.token}
+    )
+
+    r = await client.post(
+        "/auth/login",
+        json={"email": email, "password": "password123"},
+        headers={"Origin": "https://vaineai.com"},
+    )
+    assert r.status_code == 200, r.text
+
+    result = await db_session.execute(
+        select(Session)
+        .join(User, User.id == Session.user_id)
+        .where(User.email == email)
+    )
+    session = result.scalar_one()
+    delta = session.expires_at - datetime.utcnow()
+    assert timedelta(hours=11) < delta < timedelta(hours=13)

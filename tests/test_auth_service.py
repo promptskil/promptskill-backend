@@ -180,6 +180,21 @@ async def test_login_missing_user_runs_dummy_bcrypt(db_session, monkeypatch):
     assert calls == [auth_service._DUMMY_PASSWORD_HASH]
 
 
+async def test_login_default_lifetime_is_mobile(db_session):
+    """No lifetime passed → default 30-day (mobile/native) session."""
+    await _signup_and_verify(db_session, "mob-ttl@test.com", "password123")
+    await auth_service.login("mob-ttl@test.com", "password123", db_session)
+
+    result = await db_session.execute(
+        select(Session)
+        .join(User, User.id == Session.user_id)
+        .where(User.email == "mob-ttl@test.com")
+    )
+    session = result.scalar_one()
+    delta = session.expires_at - datetime.utcnow()
+    assert timedelta(days=29) < delta < timedelta(days=31)
+
+
 # ─────────────────────── validate ───────────────────────────────────────
 
 async def test_validate_valid_token(db_session):
