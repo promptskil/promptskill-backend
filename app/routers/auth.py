@@ -23,7 +23,10 @@ router = APIRouter()
 
 
 @router.post("/signup", response_model=SignupResponse)
+@limiter.limit("5/minute")
 async def signup(
+    request: Request,
+    response: Response,
     body: SignupRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SignupResponse:
@@ -32,7 +35,10 @@ async def signup(
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
+    response: Response,
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
