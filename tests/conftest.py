@@ -183,6 +183,8 @@ async def db_engine():
         os.environ["DATABASE_URL"],
         pool_size=1,
         max_overflow=0,
+        pool_pre_ping=True,   # SELECT 1 at checkout — swap a proxy-dropped connection
+        pool_recycle=120,     # recycle before the remote proxy's idle window kills it
     )
     yield eng
     await eng.dispose()
