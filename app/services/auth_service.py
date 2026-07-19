@@ -23,7 +23,8 @@ resend.api_key = settings.RESEND_API_KEY
 
 logger = logging.getLogger(__name__)
 
-SESSION_LIFETIME_DAYS = 30
+SESSION_LIFETIME_MOBILE = timedelta(days=30)  # native / no-Origin callers
+SESSION_LIFETIME_WEB = timedelta(hours=12)  # browser / extension (Origin present)
 RESET_TOKEN_LIFETIME_HOURS = 1
 EMAIL_VERIFICATION_CODE_TTL_MINUTES = 15
 EMAIL_VERIFICATION_MAX_ATTEMPTS = 5
@@ -52,9 +53,10 @@ async def _verify_password(password: str, password_hash: str) -> bool:
     )
 
 
-def _issue_jwt(user_id) -> str:
+def _issue_jwt(user_id, expires_at: datetime) -> str:
     """JWT exp MUST be aware UTC — PyJWT calls .timestamp() which
-    misinterprets naive datetimes as local time.
+    misinterprets naive datetimes as local time. The caller passes the single
+    expiry so the JWT and the DB session row cannot drift.
 
     jti (RFC 7519): unique per-issuance identifier. Prevents token
     collision when two tokens are issued in the same second for the
@@ -64,18 +66,12 @@ def _issue_jwt(user_id) -> str:
     return jwt.encode(
         {
             "user_id": str(user_id),
-            "exp": datetime.now(timezone.utc)
-                   + timedelta(days=SESSION_LIFETIME_DAYS),
+            "exp": expires_at,
             "jti": secrets.token_urlsafe(16),
         },
         settings.JWT_SECRET,
         algorithm="HS256",
     )
-
-
-def _session_expiry() -> datetime:
-    """Naive UTC — matches sa.DateTime() (no tz) in sessions.expires_at."""
-    return datetime.utcnow() + timedelta(days=SESSION_LIFETIME_DAYS)
 
 
 # ──────────────────────────── signup ─────────────────────────────
@@ -290,13 +286,25 @@ async def authenticate(
     return user
 
 
-async def issue_session(user_id: UUID, db: AsyncSession) -> str:
-    """Mint a JWT, persist a Session row, commit. Returns the token."""
-    token = _issue_jwt(user_id)
+async def issue_session(
+    user_id: UUID,
+    db: AsyncSession,
+    lifetime: timedelta = SESSION_LIFETIME_MOBILE,
+) -> str:
+    """Mint a JWT, persist a Session row, commit. Returns the token.
+
+    One expiry drives both the JWT `exp` (aware UTC) and sessions.expires_at
+    (naive UTC, matching sa.DateTime()), so they cannot drift. lifetime
+    defaults to the long native window; the router passes the short web
+    window when the login carries an Origin header.
+    """
+    now = datetime.now(timezone.utc)
+    expires_at = now + lifetime
+    token = _issue_jwt(user_id, expires_at)
     session = Session(
         user_id=user_id,
         token=token,
-        expires_at=_session_expiry(),
+        expires_at=expires_at.replace(tzinfo=None),
     )
     db.add(session)
     await db.commit()
@@ -307,9 +315,14 @@ def _checkout_required(user: User) -> bool:
     return not _subscription_active(user)
 
 
-async def login(email: str, password: str, db: AsyncSession) -> dict:
+async def login(
+    email: str,
+    password: str,
+    db: AsyncSession,
+    lifetime: timedelta = SESSION_LIFETIME_MOBILE,
+) -> dict:
     user = await authenticate(email, password, db)
-    token = await issue_session(user.id, db)
+    token = await issue_session(user.id, db, lifetime)
     return {
         "token": token,
         "user_id": user.id,
