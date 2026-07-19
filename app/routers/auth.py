@@ -42,7 +42,15 @@ async def login(
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
-    result = await auth_service.login(body.email, body.password, db)
+    # Browser/extension requests carry an Origin header → short-lived web
+    # session (limits localStorage exposure). Native mobile sends no Origin →
+    # long-lived session. Page JS in the victim's browser cannot spoof Origin.
+    lifetime = (
+        auth_service.SESSION_LIFETIME_WEB
+        if request.headers.get("origin")
+        else auth_service.SESSION_LIFETIME_MOBILE
+    )
+    result = await auth_service.login(body.email, body.password, db, lifetime)
     return LoginResponse(**result)
 
 
