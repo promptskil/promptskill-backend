@@ -29,6 +29,12 @@ EMAIL_VERIFICATION_CODE_TTL_MINUTES = 15
 EMAIL_VERIFICATION_MAX_ATTEMPTS = 5
 BCRYPT_ROUNDS = 12  # Production value; tests monkeypatch to 4 for speed.
 
+# Static bcrypt hash (cost 12) for the absent-email login path so authenticate()
+# always runs one bcrypt compare — equalizes response time whether or not the
+# account exists (defeats timing-based email enumeration). Precomputed rather
+# than hashed at import to avoid startup/test cost; its plaintext is discarded.
+_DUMMY_PASSWORD_HASH = "$2b$12$/H.6G.RBtF4XjogqW9H7NOxZ0AsxZzFL9pthJ9qlgRclGijejcYGi"
+
 
 # ──────────────────────────── helpers ────────────────────────────
 
@@ -242,8 +248,13 @@ async def authenticate(
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
-    # Uniform 401 — email enumeration prevention (spec line 1178)
-    if not user or not await _verify_password(password, user.password_hash):
+    # Uniform 401 in content AND timing — email enumeration prevention
+    # (spec line 1178). _verify_password runs UNCONDITIONALLY on its own line
+    # (never short-circuited) against the real hash or a constant dummy, so an
+    # absent email costs the same bcrypt time as a wrong password.
+    password_hash = user.password_hash if user else _DUMMY_PASSWORD_HASH
+    password_ok = await _verify_password(password, password_hash)
+    if user is None or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
