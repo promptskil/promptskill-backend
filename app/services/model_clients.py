@@ -1,14 +1,13 @@
 """Multi-provider model client adapters — Path B (Layer 7 v2).
 
-Each adapter normalises a provider's SDK into two interfaces:
+Each adapter normalises a provider's SDK into one interface:
   agenerate() — async, used by FastAPI generate_service.py
-  generate()  — sync,  used by Celery generate_task.py
 
 Exception normalisation:
   Provider-specific rate-limit and API errors are caught inside each
   adapter and re-raised as ProviderRateLimitError / ProviderAPIError.
-  generate_service.py and generate_task.py catch ONLY these common
-  types — they never import provider SDKs directly.
+  generate_service.py catches ONLY these common types — it never
+  imports provider SDKs directly.
 
 Spec: path-b-multi-provider-architecture.md — Requirements §1
 """
@@ -61,23 +60,12 @@ class ModelClient(ABC):
         """Async generation — FastAPI path."""
         ...
 
-    @abstractmethod
-    def generate(
-        self,
-        system_prompt: str,
-        user_message: str,
-        model_id: str,
-        max_tokens: int = 1000,
-    ) -> str:
-        """Sync generation — Celery path."""
-        ...
-
 
 # ─────────────────── Anthropic ────────────────────────────────
 
 
 class AnthropicClient(ModelClient):
-    """Wraps anthropic SDK — async and sync."""
+    """Wraps anthropic SDK (async)."""
 
     async def agenerate(
         self,
@@ -89,29 +77,6 @@ class AnthropicClient(ModelClient):
         client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         try:
             response = await client.messages.create(
-                model=model_id,
-                max_tokens=max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
-            )
-            return _extract_anthropic_text(response)
-        except anthropic.RateLimitError as exc:
-            raise ProviderRateLimitError("anthropic", exc) from exc
-        except anthropic.APIStatusError as exc:
-            raise ProviderAPIError("anthropic", exc) from exc
-
-    def generate(
-        self,
-        system_prompt: str,
-        user_message: str,
-        model_id: str,
-        max_tokens: int = 1000,
-    ) -> str:
-        client = anthropic.Anthropic(
-            api_key=settings.ANTHROPIC_API_KEY
-        )
-        try:
-            response = client.messages.create(
                 model=model_id,
                 max_tokens=max_tokens,
                 system=system_prompt,
@@ -145,7 +110,7 @@ def _extract_anthropic_text(response) -> str:
 
 
 class OpenAIClient(ModelClient):
-    """Wraps openai SDK — async and sync.
+    """Wraps openai SDK (async).
 
     Subclassed by GrokClient with different base_url.
     """
@@ -193,47 +158,15 @@ class OpenAIClient(ModelClient):
         except openai.APIStatusError as exc:
             raise ProviderAPIError("openai", exc) from exc
 
-    def generate(
-        self,
-        system_prompt: str,
-        user_message: str,
-        model_id: str,
-        max_tokens: int = 1000,
-    ) -> str:
-        client = openai.OpenAI(
-            api_key=self._get_api_key(),
-            base_url=self._get_base_url(),
-        )
-        try:
-            response = client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                **{self._token_param(): max_tokens},
-            )
-            text = response.choices[0].message.content
-            if not text:
-                raise ProviderAPIError(
-                    "openai", RuntimeError("response_missing_content")
-                )
-            return text
-        except openai.RateLimitError as exc:
-            raise ProviderRateLimitError("openai", exc) from exc
-        except openai.APIStatusError as exc:
-            raise ProviderAPIError("openai", exc) from exc
-
 
 # ─────────────────── Gemini (Google GenAI) ────────────────────
 
 
 class GeminiClient(ModelClient):
-    """Wraps google-genai SDK — async and sync.
+    """Wraps google-genai SDK (async).
 
     SDK pattern:
-      sync:  client.models.generate_content(model=..., contents=...)
-      async: client.aio.models.generate_content(model=..., contents=...)
+      client.aio.models.generate_content(model=..., contents=...)
 
     Exception: google.genai.errors.APIError (check .code for 429).
     """
@@ -248,34 +181,6 @@ class GeminiClient(ModelClient):
         client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         try:
             response = await client.aio.models.generate_content(
-                model=model_id,
-                contents=user_message,
-                config=genai.types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    max_output_tokens=max_tokens,
-                ),
-            )
-            text = response.text
-            if not text:
-                raise ProviderAPIError(
-                    "gemini", RuntimeError("response_missing_text")
-                )
-            return text
-        except genai_errors.APIError as exc:
-            if exc.code == 429:
-                raise ProviderRateLimitError("gemini", exc) from exc
-            raise ProviderAPIError("gemini", exc) from exc
-
-    def generate(
-        self,
-        system_prompt: str,
-        user_message: str,
-        model_id: str,
-        max_tokens: int = 1000,
-    ) -> str:
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        try:
-            response = client.models.generate_content(
                 model=model_id,
                 contents=user_message,
                 config=genai.types.GenerateContentConfig(

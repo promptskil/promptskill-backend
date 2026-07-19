@@ -2,7 +2,6 @@
 
 Each adapter is tested for:
   - async happy path (agenerate returns string)
-  - sync happy path (generate returns string)
   - rate limit → ProviderRateLimitError
   - API error → ProviderAPIError
 
@@ -69,15 +68,6 @@ async def test_anthropic_async_happy_path():
     assert result == "hello"
 
 
-def test_anthropic_sync_happy_path():
-    client = AnthropicClient()
-    mock_api = MagicMock()
-    mock_api.messages.create.return_value = _anthropic_response("sync hello")
-    with patch("app.services.model_clients.anthropic.Anthropic", return_value=mock_api):
-        result = client.generate("sys", "user msg", "claude-sonnet-4-6")
-    assert result == "sync hello"
-
-
 @pytest.mark.asyncio(loop_scope="session")
 async def test_anthropic_async_rate_limit():
     import anthropic
@@ -124,15 +114,6 @@ async def test_openai_async_happy_path():
     with patch("app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api):
         result = await client.agenerate("sys", "msg", "gpt-4o")
     assert result == "openai out"
-
-
-def test_openai_sync_happy_path():
-    client = OpenAIClient()
-    mock_api = MagicMock()
-    mock_api.chat.completions.create.return_value = _openai_response("sync openai")
-    with patch("app.services.model_clients.openai.OpenAI", return_value=mock_api):
-        result = client.generate("sys", "msg", "gpt-4o")
-    assert result == "sync openai"
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -192,15 +173,6 @@ async def test_gemini_async_happy_path():
     with patch("app.services.model_clients.genai.Client", return_value=mock_genai_client):
         result = await client.agenerate("sys", "msg", "gemini-2.0-flash")
     assert result == "gemini out"
-
-
-def test_gemini_sync_happy_path():
-    client = GeminiClient()
-    mock_genai_client = MagicMock()
-    mock_genai_client.models.generate_content.return_value = _gemini_response("sync gemini")
-    with patch("app.services.model_clients.genai.Client", return_value=mock_genai_client):
-        result = client.generate("sys", "msg", "gemini-2.0-flash")
-    assert result == "sync gemini"
 
 
 @pytest.mark.asyncio(loop_scope="session")
