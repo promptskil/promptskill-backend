@@ -50,6 +50,9 @@ class User(Base):
     # applied subscription event; strictly-older out-of-order events are
     # dropped so they can't resurrect a cancelled subscription.
     stripe_last_event_created = Column(BigInteger, nullable=True)
+    # Apple webhook ordering guard — outer notification signedDate (unix ms) of
+    # the last applied notification; strictly-older ones are dropped.
+    apple_last_signed_date = Column(BigInteger, nullable=True)
 
     prompts = relationship(
         "Prompt", back_populates="user", passive_deletes=True

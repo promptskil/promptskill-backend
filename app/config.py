@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = ""  # e.g. https://your-app.railway.app — set in Railway env
     WEB_BASE_URL: str = "https://www.vaineai.com"  # frontend domain for email links
     APPLE_SHARED_SECRET: str = ""  # App-specific shared secret from App Store Connect
+    APPLE_BUNDLE_ID: str = ""  # e.g. com.airpromptskill.app — required to verify notifications
+    APPLE_APP_APPLE_ID: int = 0  # numeric App Store id — required for the Production verifier
     STRIPE_SECRET_KEY: str = ""  # sk_... — set in Railway env, never in code
     STRIPE_WEBHOOK_SECRET: str = ""  # whsec_... — webhook signing secret
     STRIPE_PRICE_ID: str = ""  # price_... — individual plan
