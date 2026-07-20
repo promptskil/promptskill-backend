@@ -94,6 +94,23 @@ async def process_event(
         )
         return
 
+    # Ordering guard — Stripe gives no ordering guarantee and retries events.
+    # The signature is verified above, so a real event always carries an int
+    # `created`; reject a malformed one, then drop any strictly-older event so
+    # a delayed/retried earlier update can't resurrect a later-cancelled sub.
+    event_created = event.get("created")
+    if not isinstance(event_created, int):
+        raise ValueError("Stripe event missing created timestamp")
+    if (
+        user.stripe_last_event_created is not None
+        and event_created < user.stripe_last_event_created
+    ):
+        logger.info(
+            "Stripe %s: stale event created=%s < last=%s — skipping",
+            event_type, event_created, user.stripe_last_event_created,
+        )
+        return
+
     if event_type == "customer.subscription.deleted":
         new_status = "expired"
     else:
@@ -108,6 +125,7 @@ async def process_event(
     user.subscription_expires_at = expires_at
     user.subscription_source = "stripe"
     user.stripe_subscription_id = sub.get("id")
+    user.stripe_last_event_created = event_created
 
     await db.commit()
     logger.info(
