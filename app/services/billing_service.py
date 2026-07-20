@@ -4,6 +4,7 @@ create_checkout_session ensures the user has a Stripe customer (the durable
 user <-> Stripe identity link the webhook relies on), then creates a
 subscription Checkout Session with a free trial and card required up front.
 """
+import asyncio
 from uuid import UUID
 
 from sqlalchemy import select
@@ -22,14 +23,16 @@ async def create_checkout_session(user_id: UUID, db: AsyncSession) -> str:
 
     # Ensure a Stripe customer exists; reuse if we already have one.
     if not user.stripe_customer_id:
-        customer = stripe.Customer.create(
+        customer = await asyncio.to_thread(
+            stripe.Customer.create,
             email=user.email,
             metadata={"user_id": str(user.id)},
         )
         user.stripe_customer_id = customer["id"]
         await db.commit()
 
-    session = stripe.checkout.Session.create(
+    session = await asyncio.to_thread(
+        stripe.checkout.Session.create,
         mode="subscription",
         customer=user.stripe_customer_id,
         line_items=[{"price": settings.STRIPE_PRICE_ID, "quantity": 1}],
