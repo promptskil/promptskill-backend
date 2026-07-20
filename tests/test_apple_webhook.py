@@ -1,31 +1,31 @@
-"""Apple webhook tests — Part B.
+"""Apple webhook tests.
 
-JWS verification is mocked (no real Apple certs): `_verify_jws` is patched to
-return canned payloads, so we test the dispatch + DB handlers + router, plus
-the JWS structure/x5c error branches with synthetic tokens.
+Signature/chain verification is delegated to Apple's official SignedDataVerifier
+(covered by the library). Here we test dispatch + DB handlers + the ordering
+(AP2) / expiry (AP3) / signedDate guards + the dual-environment fallback + the
+router, by patching `_verify_notification` (and, for the fallback test,
+`_verifiers`) to return canned decoded objects.
 """
-import base64
-import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from app.config import settings
 from app.database import get_db
 from app.main import app
 from app.models.user import User
 from app.services import apple_webhook_service
 
 PRO_PRODUCT = "com.airpromptskill.app.pro_biweekly"
-EXPIRES_MS = 1_900_000_000_000  # milliseconds epoch (far future)
+EXPIRES_MS = 1_900_000_000_000  # far-future ms epoch
+SIGNED_DATE_MS = 1_700_000_000_000
 
 
 def _user(**kw) -> User:
-    d = dict(
-        email=f"{uuid4()}@test.com",
-        password_hash="x",
-    )
+    d = dict(email=f"{uuid4()}@test.com", password_hash="x")
     d.update(kw)
     return User(**d)
 
@@ -36,32 +36,41 @@ async def _persist(db, user):
     return user
 
 
-def _outer(ntype, subtype=""):
-    return {
-        "notificationType": ntype,
-        "subtype": subtype,
-        "data": {"signedTransactionInfo": "TX"},
-    }
+def _outer(ntype, signed_date=SIGNED_DATE_MS):
+    """A decoded outer notification (ResponseBodyV2DecodedPayload-shaped)."""
+    return SimpleNamespace(
+        rawNotificationType=ntype,
+        subtype="",
+        signedDate=signed_date,
+        data=SimpleNamespace(signedTransactionInfo="TX"),
+    )
 
 
-def _tx(otid, product=PRO_PRODUCT, expires_ms=EXPIRES_MS):
-    return {
-        "originalTransactionId": otid,
-        "productId": product,
-        "expiresDate": expires_ms,
-    }
+def _tx(otid, product=PRO_PRODUCT, expires_ms=EXPIRES_MS, app_account_token=None):
+    """A decoded transaction (JWSTransactionDecodedPayload-shaped)."""
+    return SimpleNamespace(
+        originalTransactionId=otid,
+        productId=product,
+        expiresDate=expires_ms,
+        appAccountToken=app_account_token,
+    )
 
 
 @pytest.fixture
 def verify(monkeypatch):
-    """Patch _verify_jws: returns state['tx'] for the nested 'TX' token,
-    else state['outer']."""
+    """Patch _verify_notification → (stub_verifier, state['outer']); the stub's
+    verify_and_decode_signed_transaction returns state['tx']."""
     state = {"outer": None, "tx": None}
 
-    def fake_verify(token):
-        return state["tx"] if token == "TX" else state["outer"]
+    def fake_verify_notification(signed_payload):
+        stub = SimpleNamespace(
+            verify_and_decode_signed_transaction=lambda _tx: state["tx"]
+        )
+        return stub, state["outer"]
 
-    monkeypatch.setattr(apple_webhook_service, "_verify_jws", fake_verify)
+    monkeypatch.setattr(
+        apple_webhook_service, "_verify_notification", fake_verify_notification
+    )
     return state
 
 
@@ -102,16 +111,11 @@ async def test_appaccounttoken_links_user(db_session, verify):
     """First notification: resolve by appAccountToken (user id) and link it."""
     u = await _persist(db_session, _user())  # no apple_original_transaction_id
     verify["outer"] = _outer("SUBSCRIBED")
-    verify["tx"] = {
-        "originalTransactionId": "otid_new",
-        "appAccountToken": str(u.id),
-        "productId": PRO_PRODUCT,
-        "expiresDate": EXPIRES_MS,
-    }
+    verify["tx"] = _tx("otid_new", app_account_token=str(u.id))
     await apple_webhook_service.process_notification("OUTER", db_session)
     assert u.subscription_status == "active"
     assert u.subscription_source == "apple"
-    assert u.apple_original_transaction_id == "otid_new"  # link established
+    assert u.apple_original_transaction_id == "otid_new"
 
 
 async def test_unknown_type_no_change(db_session, verify):
@@ -123,21 +127,20 @@ async def test_unknown_type_no_change(db_session, verify):
     verify["outer"] = _outer("CONSUMPTION_REQUEST")  # unhandled type
     verify["tx"] = _tx(otid)
     await apple_webhook_service.process_notification("OUTER", db_session)
-    assert u.subscription_status == "active"  # untouched
+    assert u.subscription_status == "active"
 
 
 async def test_missing_signed_tx_is_noop(db_session, verify):
-    verify["outer"] = {
-        "notificationType": "SUBSCRIBED",
-        "subtype": "",
-        "data": {},  # no signedTransactionInfo
-    }
+    verify["outer"] = SimpleNamespace(
+        rawNotificationType="SUBSCRIBED", subtype="", signedDate=SIGNED_DATE_MS,
+        data=SimpleNamespace(signedTransactionInfo=None),
+    )
     await apple_webhook_service.process_notification("OUTER", db_session)
 
 
 async def test_missing_otid_is_noop(db_session, verify):
     verify["outer"] = _outer("SUBSCRIBED")
-    verify["tx"] = {"productId": PRO_PRODUCT, "expiresDate": EXPIRES_MS}
+    verify["tx"] = _tx("")  # empty originalTransactionId
     await apple_webhook_service.process_notification("OUTER", db_session)
 
 
@@ -147,29 +150,102 @@ async def test_user_not_found_is_noop(db_session, verify):
     await apple_webhook_service.process_notification("OUTER", db_session)
 
 
-# ── JWS helper error branches (real code, synthetic tokens) ────────────────
+# ── AP2 ordering guard (outer signedDate) ────────────────────────────────
 
-def _b64url(obj) -> str:
-    return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
+async def test_stale_notification_does_not_apply(db_session, verify):
+    otid = f"otid_{uuid4().hex[:8]}"
+    u = await _persist(db_session, _user(apple_original_transaction_id=otid))
+    verify["outer"] = _outer("EXPIRED", signed_date=2000)
+    verify["tx"] = _tx(otid)
+    await apple_webhook_service.process_notification("OUTER", db_session)
+    assert u.subscription_status == "expired"
+    # a delayed earlier SUBSCRIBED (signedDate < last) must be ignored
+    verify["outer"] = _outer("SUBSCRIBED", signed_date=1000)
+    verify["tx"] = _tx(otid)
+    await apple_webhook_service.process_notification("OUTER", db_session)
+    assert u.subscription_status == "expired"
 
 
-def test_decode_jws_unverified_bad_structure():
+# ── AP3 no null-expiry grants ────────────────────────────────────────────
+
+async def test_grant_without_expires_is_skipped(db_session, verify):
+    otid = f"otid_{uuid4().hex[:8]}"
+    u = await _persist(
+        db_session,
+        _user(apple_original_transaction_id=otid, subscription_status="expired"),
+    )
+    verify["outer"] = _outer("SUBSCRIBED")
+    verify["tx"] = _tx(otid, expires_ms=None)  # grant event without expiresDate
+    await apple_webhook_service.process_notification("OUTER", db_session)
+    assert u.subscription_status == "expired"        # not granted
+    assert u.apple_last_signed_date is None           # recency not advanced
+
+
+# ── signedDate guard ─────────────────────────────────────────────────────
+
+async def test_missing_signed_date_raises(db_session, verify):
+    otid = f"otid_{uuid4().hex[:8]}"
+    await _persist(db_session, _user(apple_original_transaction_id=otid))
+    verify["outer"] = _outer("SUBSCRIBED", signed_date=None)
+    verify["tx"] = _tx(otid)
     with pytest.raises(ValueError):
-        apple_webhook_service._decode_jws_unverified("only.two")
+        await apple_webhook_service.process_notification("OUTER", db_session)
 
 
-def test_verify_jws_bad_structure():
-    with pytest.raises(ValueError):
-        apple_webhook_service._verify_jws("only.two")
+# ── dual verifier: Production → Sandbox on INVALID_ENVIRONMENT ────────────
+
+async def test_sandbox_fallback_on_invalid_environment(db_session, monkeypatch):
+    from appstoreserverlibrary.signed_data_verifier import (
+        VerificationException,
+        VerificationStatus,
+    )
+
+    otid = f"otid_{uuid4().hex[:8]}"
+    u = await _persist(db_session, _user(apple_original_transaction_id=otid))
+    outer = _outer("SUBSCRIBED")
+    tx = _tx(otid)
+
+    def prod_verify(_):
+        raise VerificationException(VerificationStatus.INVALID_ENVIRONMENT)
+
+    prod = SimpleNamespace(verify_and_decode_notification=prod_verify)
+    sandbox = SimpleNamespace(
+        verify_and_decode_notification=lambda _: outer,
+        verify_and_decode_signed_transaction=lambda _: tx,
+    )
+    monkeypatch.setattr(
+        apple_webhook_service, "_verifiers", lambda: (prod, sandbox)
+    )
+    await apple_webhook_service.process_notification("OUTER", db_session)
+    assert u.subscription_status == "active"
 
 
-def test_verify_jws_short_x5c_chain():
-    token = f"{_b64url({'x5c': []})}.{_b64url({})}.sig"
-    with pytest.raises(ValueError):
-        apple_webhook_service._verify_jws(token)
+# ── verifier construction (real cert asset + config guard) ───────────────
+
+def test_verifiers_build_with_valid_config(monkeypatch):
+    """Exercises the committed Apple root .cer load + SignedDataVerifier build."""
+    monkeypatch.setattr(settings, "APPLE_BUNDLE_ID", "com.airpromptskill.app")
+    monkeypatch.setattr(settings, "APPLE_APP_APPLE_ID", 123456789)
+    apple_webhook_service._verifiers.cache_clear()
+    try:
+        prod, sandbox = apple_webhook_service._verifiers()
+        assert prod is not None and sandbox is not None
+    finally:
+        apple_webhook_service._verifiers.cache_clear()
 
 
-# ── router ─────────────────────────────────────────────────────────────────
+def test_verifiers_missing_config_raises_runtimeerror(monkeypatch):
+    """Server misconfig must be RuntimeError (→ 500), never ValueError (→ 400)."""
+    monkeypatch.setattr(settings, "APPLE_BUNDLE_ID", "")
+    apple_webhook_service._verifiers.cache_clear()
+    try:
+        with pytest.raises(RuntimeError):
+            apple_webhook_service._verifiers()
+    finally:
+        apple_webhook_service._verifiers.cache_clear()
+
+
+# ── router ────────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def client(db_session):
