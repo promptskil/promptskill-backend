@@ -1,7 +1,7 @@
 import enum
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Enum, String
+from sqlalchemy import BigInteger, Column, DateTime, Enum, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -46,6 +46,10 @@ class User(Base):
     stripe_customer_id = Column(String, unique=True, index=True, nullable=True)
     stripe_subscription_id = Column(String, index=True, nullable=True)
     subscription_source = Column(String, nullable=True)  # 'stripe' | 'apple'
+    # Stripe webhook ordering guard — event.created (unix s) of the last
+    # applied subscription event; strictly-older out-of-order events are
+    # dropped so they can't resurrect a cancelled subscription.
+    stripe_last_event_created = Column(BigInteger, nullable=True)
 
     prompts = relationship(
         "Prompt", back_populates="user", passive_deletes=True
