@@ -15,6 +15,7 @@ google-genai
 celery[redis]
 resend
 stripe
+app-store-server-library
 sentry-sdk[fastapi,celery,sqlalchemy]
 slowapi
 httpx
