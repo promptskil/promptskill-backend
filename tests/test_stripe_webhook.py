@@ -16,6 +16,7 @@ from app.models.user import User
 from app.services import stripe_webhook_service
 
 PERIOD_END = 1_900_000_000  # far-future unix timestamp
+DEFAULT_CREATED = 1_700_000_000  # event.created (unix s) for test payloads
 
 
 def _user(**kw) -> User:
@@ -35,9 +36,10 @@ async def _persist(db, user):
 
 
 def _payload(etype, customer, status="active", sub_id="sub_123",
-             period_end=PERIOD_END):
+             period_end=PERIOD_END, created=DEFAULT_CREATED):
     return json.dumps({
         "type": etype,
+        "created": created,
         "data": {
             "object": {
                 "customer": customer,
@@ -105,6 +107,7 @@ async def test_period_end_from_items_fallback(db_session, construct):
     u = await _persist(db_session, _user())
     payload = json.dumps({
         "type": "customer.subscription.created",
+        "created": DEFAULT_CREATED,
         "data": {
             "object": {
                 "customer": u.stripe_customer_id,
@@ -124,6 +127,7 @@ async def test_period_end_from_trial_end(db_session, construct):
     u = await _persist(db_session, _user())
     payload = json.dumps({
         "type": "customer.subscription.created",
+        "created": DEFAULT_CREATED,
         "data": {
             "object": {
                 "customer": u.stripe_customer_id,
@@ -149,6 +153,44 @@ async def test_unknown_customer_is_noop(db_session, construct):
         "customer.subscription.updated", "cus_nonexistent", status="active"
     )
     await stripe_webhook_service.process_event(payload, "sig", db_session)
+
+
+async def test_stale_event_does_not_resurrect(db_session, construct):
+    """Out-of-order guard: a delayed earlier 'active' update must not overwrite
+    a later 'deleted' that already expired the subscription."""
+    u = await _persist(db_session, _user(subscription_status="active"))
+    await stripe_webhook_service.process_event(
+        _payload("customer.subscription.deleted", u.stripe_customer_id,
+                 status="canceled", created=2000),
+        "sig", db_session,
+    )
+    assert u.subscription_status == "expired"
+    await stripe_webhook_service.process_event(
+        _payload("customer.subscription.updated", u.stripe_customer_id,
+                 status="active", created=1000),
+        "sig", db_session,
+    )
+    assert u.subscription_status == "expired"
+
+
+async def test_subscription_event_missing_created_raises(db_session, construct):
+    """The ordering guard requires an int `created` before any state write;
+    a subscription event without it is rejected (router -> 400) and no state
+    changes."""
+    u = await _persist(db_session, _user(subscription_status="active"))
+    payload = json.dumps({
+        "type": "customer.subscription.updated",
+        "data": {
+            "object": {
+                "customer": u.stripe_customer_id,
+                "status": "canceled",
+                "id": "sub_nocreated",
+            }
+        },
+    }).encode()
+    with pytest.raises(ValueError):
+        await stripe_webhook_service.process_event(payload, "sig", db_session)
+    assert u.subscription_status == "active"
 
 
 @pytest_asyncio.fixture(loop_scope="session")
