@@ -122,7 +122,10 @@ async def validate(
 
 
 @router.post("/forgot-password")
+@limiter.limit("1/15 minutes")
 async def forgot_password(
+    request: Request,
+    response: Response,
     body: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -131,7 +134,10 @@ async def forgot_password(
 
 
 @router.post("/resend-verification")
+@limiter.limit("1/15 minutes")
 async def resend_verification(
+    request: Request,
+    response: Response,
     body: ResendVerificationRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
