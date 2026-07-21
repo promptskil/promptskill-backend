@@ -11,14 +11,17 @@ Test via any protected endpoint — /user is the simplest since it takes
 no body. Service-layer behavior is tested elsewhere; this file exists
 only to pin the FastAPI dependency branches.
 """
+from uuid import uuid4
+
 import jwt
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from uuid import uuid4
 
 from app.config import settings
+from app.cookies import SESSION_COOKIE_NAME
 from app.database import get_db
 from app.main import app
+from tests.auth_helpers import signup_verify_login
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -62,5 +65,40 @@ async def test_valid_jwt_but_no_session_returns_401(client):
     r = await client.get(
         "/user",
         headers={"Authorization": f"Bearer {forged}"},
+    )
+    assert r.status_code == 401
+
+
+# ─────────────────────── cookie fallback (3.2) ──────────────────────────
+
+async def test_cookie_auth_no_bearer_succeeds(client, db_session):
+    """Bearer absent → token read from the session cookie (3.2 fallback)."""
+    token, user_id = await signup_verify_login(
+        client, db_session, f"cookie-{uuid4().hex[:8]}@t.com"
+    )
+    r = await client.get("/user", cookies={SESSION_COOKIE_NAME: token})
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == user_id
+
+
+async def test_bearer_takes_precedence_over_cookie(client, db_session):
+    """Both present → bearer wins. Valid bearer + garbage cookie → 200."""
+    token, user_id = await signup_verify_login(
+        client, db_session, f"both-{uuid4().hex[:8]}@t.com"
+    )
+    r = await client.get(
+        "/user",
+        headers={"Authorization": f"Bearer {token}"},
+        cookies={SESSION_COOKIE_NAME: "garbage-not-a-jwt"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == user_id
+
+
+async def test_malformed_cookie_no_bearer_returns_401(client):
+    """Bearer absent, bad cookie → cookie path reaches jwt.decode → 401
+    (proves the cookie is actually read, not ignored)."""
+    r = await client.get(
+        "/user", cookies={SESSION_COOKIE_NAME: "not-a-real-jwt"}
     )
     assert r.status_code == 401
