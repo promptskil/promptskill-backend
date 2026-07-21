@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.cookies import SESSION_COOKIE_NAME
 from app.database import get_db
 from app.models import Session as SessionModel
 from app.models import User
@@ -20,13 +21,16 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> UUID:
-    if credentials is None:
+    # Bearer first (mobile + current web); cookie fallback (web post-migration).
+    if credentials is not None:
+        token = credentials.credentials
+    else:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-
-    token = credentials.credentials
 
     try:
         payload = jwt.decode(
