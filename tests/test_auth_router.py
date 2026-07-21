@@ -502,3 +502,27 @@ async def test_me_bearer_precedence_over_cookie(client, db_session):
 async def test_me_no_auth_returns_401(client):
     r = await client.get("/auth/me")
     assert r.status_code == 401
+
+
+# ─────────────────── email-endpoint rate limits (1/15 min) ───────────────
+
+async def test_forgot_password_rate_limited(client, rate_limit_enabled):
+    r1 = await client.post(
+        "/auth/forgot-password", json={"email": "nobody@test.com"}
+    )
+    assert r1.status_code == 404  # unknown email (not 500 → response param wired)
+    r2 = await client.post(
+        "/auth/forgot-password", json={"email": "nobody@test.com"}
+    )
+    assert r2.status_code == 429
+
+
+async def test_resend_verification_rate_limited(client, rate_limit_enabled):
+    r1 = await client.post(
+        "/auth/resend-verification", json={"email": "nobody@test.com"}
+    )
+    assert r1.status_code == 200  # always 200, no enumeration
+    r2 = await client.post(
+        "/auth/resend-verification", json={"email": "nobody@test.com"}
+    )
+    assert r2.status_code == 429
