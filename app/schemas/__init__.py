@@ -30,6 +30,7 @@ from app.schemas.responses import (
     GlobeMeResponse,
     GlobePostOut,
     GlobePostsResponse,
+    GlobeRepliesResponse,
     GlobeReplyOut,
     GlobeUsernameResponse,
     GlobeZoneOut,
@@ -82,6 +83,7 @@ __all__ = [
     "GlobeReplyOut",
     "GlobePostOut",
     "GlobePostsResponse",
+    "GlobeRepliesResponse",
     "GlobeFeedItem",
     "GlobeFeedResponse",
 ]
