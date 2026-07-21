@@ -32,6 +32,7 @@ from app.services.globe_service import (
     get_hidden_zones,
     get_me,
     get_or_create_domain,
+    get_replies,
     get_thread,
     get_zones,
     hide_zone,
@@ -489,3 +490,53 @@ async def test_list_domains_includes_presets(db_session):
 async def test_list_domains_search(db_session):
     result = await list_domains("found", db_session)
     assert "Founders" in result["domains"]
+
+
+# ─────────────────────── GLOBE-2 bounded replies ─────────────────────────
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_thread_caps_inline_replies_and_paginates(db_session, user_a):
+    await _profile(db_session, user_a, _uniq("capper"))
+    zone = await create_zone(user_a.id, "startup", _uniq("Cap zone"), db_session)
+    post = await create_post(user_a.id, zone["id"], "root", db_session)
+    for i in range(22):
+        await create_reply(user_a.id, post["id"], f"r{i}", None, db_session)
+
+    thread = await get_thread(zone["id"], 20, 0, db_session)
+    tp = thread["posts"][0]
+    assert len(tp["replies"]) == 20            # inline cap is structural
+    assert tp["has_more_replies"] is True
+
+    page1 = await get_replies(post["id"], 20, 0, db_session)
+    assert len(page1["replies"]) == 20
+    assert page1["has_more"] is True
+    assert page1["next_offset"] == 20
+
+    page2 = await get_replies(post["id"], 20, 20, db_session)
+    assert len(page2["replies"]) == 2
+    assert page2["has_more"] is False
+    assert page2["next_offset"] is None
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_thread_under_cap_no_more(db_session, user_a):
+    await _profile(db_session, user_a, _uniq("undercap"))
+    zone = await create_zone(user_a.id, "startup", _uniq("Small"), db_session)
+    post = await create_post(user_a.id, zone["id"], "root", db_session)
+    for i in range(5):
+        await create_reply(user_a.id, post["id"], f"r{i}", None, db_session)
+
+    thread = await get_thread(zone["id"], 20, 0, db_session)
+    tp = thread["posts"][0]
+    assert len(tp["replies"]) == 5
+    assert tp["has_more_replies"] is False
+    page = await get_replies(post["id"], 20, 0, db_session)
+    assert len(page["replies"]) == 5
+    assert page["has_more"] is False
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_get_replies_missing_post_404(db_session):
+    with pytest.raises(HTTPException) as exc:
+        await get_replies(uuid4(), 20, 0, db_session)
+    assert exc.value.status_code == 404

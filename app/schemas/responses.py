@@ -107,11 +107,18 @@ class GlobePostOut(BaseModel):
     body: str
     created_at: datetime
     replies: list[GlobeReplyOut]
+    has_more_replies: bool = False
 
 
 class GlobePostsResponse(BaseModel):
     zone: GlobeZoneOut
     posts: list[GlobePostOut]
+
+
+class GlobeRepliesResponse(BaseModel):
+    replies: list[GlobeReplyOut]
+    has_more: bool = False
+    next_offset: int | None = None
 
 
 class GlobeEditedResponse(BaseModel):

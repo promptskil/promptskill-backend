@@ -17,7 +17,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import exists, or_, select, tuple_
+from sqlalchemy import exists, or_, select, true, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +31,7 @@ from app.models.globe import (
 )
 
 _MAX_LIMIT = 50
+_INLINE_REPLIES = 20  # max replies inlined per post in a thread (GLOBE-2)
 
 
 def _validate_page(limit: int, offset: int) -> None:
@@ -270,6 +271,7 @@ async def create_post(
         "body": post.body,
         "created_at": post.created_at,
         "replies": [],
+        "has_more_replies": False,
     }
 
 
@@ -538,29 +540,59 @@ async def get_thread(
         )
     ).all()
     post_ids = [p.id for p, _ in post_rows]
-    replies_by_post: dict = {pid: [] for pid in post_ids}
+
+    inlined: dict = {pid: [] for pid in post_ids}
+    seen: dict = {pid: 0 for pid in post_ids}
     if post_ids:
+        # Bounded per-post fetch: LATERAL reads at most N+1 replies per post via
+        # ix_globe_replies_post_created — bounded DB work AND bounded JSON no
+        # matter how many replies a post has. The (N+1)th row only flags "more".
+        top = (
+            select(
+                GlobeReply.id,
+                GlobeReply.parent_reply_id,
+                GlobeReply.author_user_id,
+                GlobeReply.body,
+                GlobeReply.created_at,
+            )
+            .where(GlobeReply.post_id == GlobePost.id)
+            .order_by(GlobeReply.created_at, GlobeReply.id)
+            .limit(_INLINE_REPLIES + 1)
+            .correlate(GlobePost)
+            .lateral()
+        )
         reply_rows = (
             await db.execute(
-                select(GlobeReply, GlobeProfile.username)
+                select(
+                    GlobePost.id.label("post_id"),
+                    top.c.id,
+                    top.c.parent_reply_id,
+                    top.c.body,
+                    top.c.created_at,
+                    GlobeProfile.username,
+                )
+                .select_from(GlobePost)
+                .join(top, true())
                 .join(
                     GlobeProfile,
-                    GlobeProfile.user_id == GlobeReply.author_user_id,
+                    GlobeProfile.user_id == top.c.author_user_id,
                 )
-                .where(GlobeReply.post_id.in_(post_ids))
-                .order_by(GlobeReply.created_at)
+                .where(GlobePost.id.in_(post_ids))
+                .order_by(GlobePost.id, top.c.created_at, top.c.id)
             )
         ).all()
-        for reply, username in reply_rows:
-            replies_by_post[reply.post_id].append(
-                {
-                    "id": reply.id,
-                    "parent_reply_id": reply.parent_reply_id,
-                    "author_username": username,
-                    "body": reply.body,
-                    "created_at": reply.created_at,
-                }
-            )
+        for row in reply_rows:
+            seen[row.post_id] += 1
+            if seen[row.post_id] <= _INLINE_REPLIES:
+                inlined[row.post_id].append(
+                    {
+                        "id": row.id,
+                        "parent_reply_id": row.parent_reply_id,
+                        "author_username": row.username,
+                        "body": row.body,
+                        "created_at": row.created_at,
+                    }
+                )
     return {
         "zone": {
             "id": zone.id,
@@ -574,8 +606,52 @@ async def get_thread(
                 "author_username": username,
                 "body": post.body,
                 "created_at": post.created_at,
-                "replies": replies_by_post[post.id],
+                "replies": inlined[post.id],
+                "has_more_replies": seen[post.id] > _INLINE_REPLIES,
             }
             for post, username in post_rows
         ],
+    }
+
+
+async def get_replies(
+    post_id: UUID, limit: int, offset: int, db: AsyncSession
+) -> dict:
+    _validate_page(limit, offset)
+    post_exists = (
+        await db.execute(select(GlobePost.id).where(GlobePost.id == post_id))
+    ).scalar_one_or_none()
+    if post_exists is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "post not found"},
+        )
+    rows = (
+        await db.execute(
+            select(GlobeReply, GlobeProfile.username)
+            .join(
+                GlobeProfile,
+                GlobeProfile.user_id == GlobeReply.author_user_id,
+            )
+            .where(GlobeReply.post_id == post_id)
+            .order_by(GlobeReply.created_at, GlobeReply.id)
+            .limit(limit + 1)
+            .offset(offset)
+        )
+    ).all()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    return {
+        "replies": [
+            {
+                "id": r.id,
+                "parent_reply_id": r.parent_reply_id,
+                "author_username": u,
+                "body": r.body,
+                "created_at": r.created_at,
+            }
+            for r, u in page
+        ],
+        "has_more": has_more,
+        "next_offset": (offset + limit) if has_more else None,
     }
