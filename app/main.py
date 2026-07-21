@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -104,7 +104,12 @@ app.include_router(stripe_webhook_router.router)
 app.include_router(webhooks_router.router)
 
 @app.get("/health")
-async def health():
+async def health(request: Request):
+    print(
+        f"CLIENT_IP_CHECK host={request.client.host if request.client else None} "
+        f"xff={request.headers.get('x-forwarded-for')}",
+        flush=True,
+    )
     return {"status": "ok"}
 
 
