@@ -407,3 +407,61 @@ async def test_login_extension_origin_sets_no_cookie(client, db_session):
     )
     assert r.status_code == 200, r.text
     assert SESSION_COOKIE_NAME not in r.headers.get("set-cookie", "")
+
+
+# ─────────────────────── S2 3.4 — logout clears cookie ──────────────────
+
+async def test_logout_cookie_only_clears_and_deletes(client, db_session):
+    email = f"logout-cookie-{uuid4().hex[:8]}@test.com"
+    await _signup_and_verify(client, db_session, email)
+    token = (
+        await client.post(
+            "/auth/login", json={"email": email, "password": "password123"}
+        )
+    ).json()["token"]
+
+    r = await client.post("/auth/logout", cookies={SESSION_COOKIE_NAME: token})
+    assert r.status_code == 200, r.text
+    sc = r.headers.get("set-cookie", "")
+    assert f"{SESSION_COOKIE_NAME}=" in sc
+    assert "max-age=0" in sc.lower()  # cookie cleared
+
+    rows = await db_session.execute(
+        select(Session).join(User, User.id == Session.user_id)
+        .where(User.email == email)
+    )
+    assert rows.scalars().all() == []  # session row deleted
+
+
+async def test_logout_deletes_both_bearer_and_cookie_sessions(client, db_session):
+    email = f"logout-both-{uuid4().hex[:8]}@test.com"
+    await _signup_and_verify(client, db_session, email)
+    # Two distinct sessions: mobile (30d) vs web (12h) → different exp → token.
+    t_bearer = (
+        await client.post(
+            "/auth/login", json={"email": email, "password": "password123"}
+        )
+    ).json()["token"]
+    t_cookie = (
+        await client.post(
+            "/auth/login",
+            json={"email": email, "password": "password123"},
+            headers={"Origin": "https://www.vaineai.com"},
+        )
+    ).json()["token"]
+    assert t_bearer != t_cookie
+
+    r = await client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {t_bearer}"},
+        cookies={SESSION_COOKIE_NAME: t_cookie},
+    )
+    assert r.status_code == 200, r.text
+    assert f"{SESSION_COOKIE_NAME}=" in r.headers.get("set-cookie", "")
+    assert "max-age=0" in r.headers.get("set-cookie", "").lower()
+
+    rows = await db_session.execute(
+        select(Session).join(User, User.id == Session.user_id)
+        .where(User.email == email)
+    )
+    assert rows.scalars().all() == []  # both rows gone (refinement #3)
