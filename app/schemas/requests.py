@@ -70,13 +70,13 @@ class GlobeZoneCreateRequest(BaseModel):
 
 
 class GlobePostCreateRequest(BaseModel):
-    body: str = Field(min_length=1)
+    body: str = Field(min_length=1, max_length=4000)
 
 
 class GlobeReplyCreateRequest(BaseModel):
-    body: str = Field(min_length=1)
+    body: str = Field(min_length=1, max_length=4000)
     parent_reply_id: UUID | None = None
 
 
 class GlobeEditRequest(BaseModel):
-    body: str = Field(min_length=1)
+    body: str = Field(min_length=1, max_length=4000)
