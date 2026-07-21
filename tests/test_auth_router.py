@@ -20,12 +20,13 @@ Gate coverage (from /build-checklist Step 3.3b):
   3. 401 without token on protected endpoint (logout)
 """
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from app.cookies import SESSION_COOKIE_NAME
 from app.database import get_db
 from app.main import app
 from app.models import (
@@ -355,3 +356,54 @@ async def test_login_web_origin_gets_short_session(client, db_session):
     session = result.scalar_one()
     delta = session.expires_at - datetime.utcnow()
     assert timedelta(hours=11) < delta < timedelta(hours=13)
+
+
+# ─────────────────────── S2 3.3 — login sets web cookie ─────────────────
+
+async def _signup_and_verify(client, db_session, email: str) -> None:
+    await client.post(
+        "/auth/signup", json={"email": email, "password": "password123"}
+    )
+    vt = await _verification_token_for(db_session, email)
+    await client.post(
+        "/auth/verify-email-code", json={"email": email, "code": vt.token}
+    )
+
+
+async def test_login_web_origin_sets_cookie(client, db_session):
+    email = f"cookie-web-{uuid4().hex[:8]}@test.com"
+    await _signup_and_verify(client, db_session, email)
+    r = await client.post(
+        "/auth/login",
+        json={"email": email, "password": "password123"},
+        headers={"Origin": "https://www.vaineai.com"},
+    )
+    assert r.status_code == 200, r.text
+    sc = r.headers.get("set-cookie", "")
+    assert f"{SESSION_COOKIE_NAME}=" in sc
+    assert "httponly" in sc.lower()
+    assert "secure" in sc.lower()
+    assert "samesite=lax" in sc.lower()
+    assert r.json()["token"]  # body token still returned (mobile parity)
+
+
+async def test_login_no_origin_sets_no_cookie(client, db_session):
+    email = f"cookie-mobile-{uuid4().hex[:8]}@test.com"
+    await _signup_and_verify(client, db_session, email)
+    r = await client.post(
+        "/auth/login", json={"email": email, "password": "password123"}
+    )
+    assert r.status_code == 200, r.text
+    assert SESSION_COOKIE_NAME not in r.headers.get("set-cookie", "")
+
+
+async def test_login_extension_origin_sets_no_cookie(client, db_session):
+    email = f"cookie-ext-{uuid4().hex[:8]}@test.com"
+    await _signup_and_verify(client, db_session, email)
+    r = await client.post(
+        "/auth/login",
+        json={"email": email, "password": "password123"},
+        headers={"Origin": "chrome-extension://kgjcnldjmhbploedmijadigchnociecg"},
+    )
+    assert r.status_code == 200, r.text
+    assert SESSION_COOKIE_NAME not in r.headers.get("set-cookie", "")

@@ -4,6 +4,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import bearer_scheme
+from app.cookies import is_web_cookie_origin, set_session_cookie
 from app.database import get_db
 from app.rate_limit import limiter
 from app.schemas import (
@@ -51,6 +52,14 @@ async def login(
         else auth_service.SESSION_LIFETIME_MOBILE
     )
     result = await auth_service.login(body.email, body.password, db, lifetime)
+    # Web origins also receive the token as a host-only HttpOnly cookie
+    # (XSS-safe); mobile/extension keep using the body token via bearer.
+    if is_web_cookie_origin(request):
+        set_session_cookie(
+            response,
+            result["token"],
+            int(lifetime.total_seconds()),
+        )
     return LoginResponse(**result)
 
 
