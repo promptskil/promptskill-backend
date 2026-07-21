@@ -102,3 +102,55 @@ async def test_malformed_cookie_no_bearer_returns_401(client):
         "/user", cookies={SESSION_COOKIE_NAME: "not-a-real-jwt"}
     )
     assert r.status_code == 401
+
+
+# ─────────────────────── CSRF origin check (3.6) ────────────────────────
+
+async def test_cookie_csrf_state_change_requires_origin(client, db_session):
+    """Cookie-authed state change with no trusted Origin → 403."""
+    token, _ = await signup_verify_login(
+        client, db_session, f"csrf-{uuid4().hex[:8]}@t.com"
+    )
+    r = await client.patch(
+        "/user/email",
+        json={"email": f"new-{uuid4().hex[:8]}@t.com"},
+        cookies={SESSION_COOKIE_NAME: token},
+    )
+    assert r.status_code == 403
+
+
+async def test_cookie_csrf_state_change_allows_web_origin(client, db_session):
+    """Cookie-authed state change WITH a trusted Origin → allowed."""
+    token, _ = await signup_verify_login(
+        client, db_session, f"csrf-ok-{uuid4().hex[:8]}@t.com"
+    )
+    r = await client.patch(
+        "/user/email",
+        json={"email": f"new-{uuid4().hex[:8]}@t.com"},
+        cookies={SESSION_COOKIE_NAME: token},
+        headers={"Origin": "https://www.vaineai.com"},
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_bearer_state_change_exempt_from_csrf(client, db_session):
+    """Bearer auth is not CSRF-able → no Origin required on state change."""
+    token, _ = await signup_verify_login(
+        client, db_session, f"csrf-bearer-{uuid4().hex[:8]}@t.com"
+    )
+    r = await client.patch(
+        "/user/email",
+        json={"email": f"new-{uuid4().hex[:8]}@t.com"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_cookie_safe_method_exempt_from_csrf(client, db_session):
+    """Cookie-authed GET (safe method) needs no Origin."""
+    token, user_id = await signup_verify_login(
+        client, db_session, f"csrf-get-{uuid4().hex[:8]}@t.com"
+    )
+    r = await client.get("/user", cookies={SESSION_COOKIE_NAME: token})
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == user_id
