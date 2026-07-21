@@ -64,7 +64,7 @@ _ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
-    allow_credentials=False,
+    allow_credentials=True,  # send/receive the session cookie cross-origin (S2)
     allow_methods=["*"],
     allow_headers=["*"],
 )
