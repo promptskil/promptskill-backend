@@ -1,10 +1,12 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import bearer_scheme
+from app.auth import bearer_scheme, get_current_user
 from app.cookies import (
     SESSION_COOKIE_NAME,
     clear_session_cookie,
@@ -97,6 +99,17 @@ async def logout(
     await db.commit()
     clear_session_cookie(response)
     return {"success": True}
+
+
+@router.get("/me")
+async def me(
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Authed session probe for the web gate (cookie or bearer): 200 with
+    {checkout_required} when the session is valid, 401 otherwise. Lets the web
+    gate check auth without reading the HttpOnly cookie."""
+    return await auth_service.checkout_state(user_id, db)
 
 
 @router.post("/validate")

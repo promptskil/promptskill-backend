@@ -330,6 +330,18 @@ async def login(
     }
 
 
+async def checkout_state(user_id: UUID, db: AsyncSession) -> dict:
+    """{checkout_required} for an authenticated user_id — backs GET /auth/me."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    return {"checkout_required": _checkout_required(user)}
+
+
 # ──────────────────────────── validate ───────────────────────────
 
 async def validate_token(token: str, db: AsyncSession) -> dict:
