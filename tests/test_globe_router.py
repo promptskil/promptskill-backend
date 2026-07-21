@@ -259,6 +259,47 @@ async def test_edit_post_empty_body_400(client, db_session):
     assert r.status_code == 400
 
 
+# ─────────────────────── GLOBE-1 body length bound (400) ─────────────────
+
+_TOO_LONG = "x" * 4001  # over GlobePost/Reply/EditRequest max_length=4000
+
+
+async def test_create_post_body_too_long_400(client, db_session):
+    token, _ = await _signup(client, db_session, _email("g-postlen"))
+    r = await client.post(
+        f"/globe/zones/{uuid4()}/posts",
+        json={"body": _TOO_LONG}, headers=_auth(token),
+    )
+    assert r.status_code == 400
+
+
+async def test_create_reply_body_too_long_400(client, db_session):
+    token, _ = await _signup(client, db_session, _email("g-replen"))
+    r = await client.post(
+        f"/globe/posts/{uuid4()}/replies",
+        json={"body": _TOO_LONG}, headers=_auth(token),
+    )
+    assert r.status_code == 400
+
+
+async def test_edit_post_body_too_long_400(client, db_session):
+    token, _ = await _signup(client, db_session, _email("g-editplen"))
+    r = await client.patch(
+        f"/globe/posts/{uuid4()}",
+        json={"body": _TOO_LONG}, headers=_auth(token),
+    )
+    assert r.status_code == 400
+
+
+async def test_edit_reply_body_too_long_400(client, db_session):
+    token, _ = await _signup(client, db_session, _email("g-editrlen"))
+    r = await client.patch(
+        f"/globe/replies/{uuid4()}",
+        json={"body": _TOO_LONG}, headers=_auth(token),
+    )
+    assert r.status_code == 400
+
+
 async def test_edit_reply_happy(client, db_session):
     token, _ = await _signup(client, db_session, _email("g-editreply"))
     await _claim(client, token, _uniq("replyeditor"))
