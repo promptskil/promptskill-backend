@@ -8,12 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.cookies import SESSION_COOKIE_NAME
+from app.cookies import SESSION_COOKIE_NAME, WEB_COOKIE_ORIGINS
 from app.database import get_db
 from app.models import Session as SessionModel
 from app.models import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 async def get_current_user(
@@ -26,6 +28,15 @@ async def get_current_user(
         token = credentials.credentials
     else:
         token = request.cookies.get(SESSION_COOKIE_NAME)
+        # CSRF defense: the browser sends the cookie ambiently, so a
+        # state-changing cookie-authed request must carry a trusted Origin.
+        # Bearer auth (mobile/extension) isn't CSRF-able and is exempt.
+        if token and request.method not in _SAFE_METHODS:
+            if request.headers.get("origin") not in WEB_COOKIE_ORIGINS:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="CSRF origin check failed",
+                )
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
