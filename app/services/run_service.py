@@ -54,7 +54,10 @@ _SYSTEM_PROMPT = (
     "tables or pipe (|) characters, and do not use heading marks (#).\n"
 )
 _MAX_TOKENS = 1500
-_TIMEOUT_SECONDS = 60.0
+# Backend deadline sits UNDER the frontend /run timeout (60s in api.ts) so the
+# backend always returns its controlled 502 before the browser aborts — no
+# client-side 504/502 race on a provider hang.
+_TIMEOUT_SECONDS = 55.0
 
 _redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
