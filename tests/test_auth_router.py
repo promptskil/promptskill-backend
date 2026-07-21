@@ -35,7 +35,7 @@ from app.models import (
     Session,
     User,
 )
-from tests.auth_helpers import login_verified_user
+from tests.auth_helpers import login_verified_user, signup_verify_login
 
 
 # ─────────────────────── async client fixture ───────────────────────────
@@ -465,3 +465,40 @@ async def test_logout_deletes_both_bearer_and_cookie_sessions(client, db_session
         .where(User.email == email)
     )
     assert rows.scalars().all() == []  # both rows gone (refinement #3)
+
+
+# ─────────────────────── S2 3.8a — GET /auth/me probe ───────────────────
+
+async def test_me_authed_returns_checkout_required(client, db_session):
+    token, _ = await signup_verify_login(
+        client, db_session, f"me-{uuid4().hex[:8]}@test.com"
+    )
+    r = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    assert r.json()["checkout_required"] is True  # fresh user, no subscription
+
+
+async def test_me_cookie_authed_200(client, db_session):
+    token, _ = await signup_verify_login(
+        client, db_session, f"me-cookie-{uuid4().hex[:8]}@test.com"
+    )
+    r = await client.get("/auth/me", cookies={SESSION_COOKIE_NAME: token})
+    assert r.status_code == 200, r.text
+
+
+async def test_me_bearer_precedence_over_cookie(client, db_session):
+    """Bearer wins over a garbage cookie — matches get_current_user's contract."""
+    token, _ = await signup_verify_login(
+        client, db_session, f"me-both-{uuid4().hex[:8]}@test.com"
+    )
+    r = await client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+        cookies={SESSION_COOKIE_NAME: "garbage-not-a-jwt"},
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_me_no_auth_returns_401(client):
+    r = await client.get("/auth/me")
+    assert r.status_code == 401
