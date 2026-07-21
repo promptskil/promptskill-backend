@@ -1,4 +1,5 @@
 """Unit tests for Engine 2 run_service — mocked provider client + Redis."""
+import asyncio
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -39,3 +40,19 @@ async def test_rate_limit_maps_429():
         with pytest.raises(HTTPException) as exc:
             await run_service.run_prompt("chatgpt", "p", uuid4())
     assert exc.value.status_code == 429
+
+
+async def test_timeout_maps_502(monkeypatch):
+    monkeypatch.setattr(run_service, "_TIMEOUT_SECONDS", 0.01)
+
+    async def _hang(*args, **kwargs):
+        await asyncio.sleep(0.5)
+
+    c = AsyncMock()
+    c.agenerate = _hang
+
+    with patch.object(run_service, "get_client", return_value=c):
+        with pytest.raises(HTTPException) as exc:
+            await run_service.run_prompt("chatgpt", "p", uuid4())
+
+    assert exc.value.status_code == 502
