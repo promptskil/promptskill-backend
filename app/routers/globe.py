@@ -24,6 +24,7 @@ from app.schemas import (
     GlobePostCreateRequest,
     GlobePostOut,
     GlobePostsResponse,
+    GlobeRepliesResponse,
     GlobeReplyCreateRequest,
     GlobeReplyOut,
     GlobeUsernameRequest,
@@ -154,6 +155,18 @@ async def create_reply(
         user_id, post_id, body.body, body.parent_reply_id, db
     )
     return GlobeReplyOut(**result)
+
+
+@router.get("/posts/{post_id}/replies", response_model=GlobeRepliesResponse)
+async def list_replies(
+    post_id: UUID,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user_id: UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GlobeRepliesResponse:
+    result = await globe_service.get_replies(post_id, limit, offset, db)
+    return GlobeRepliesResponse(**result)
 
 
 @router.patch("/posts/{post_id}", response_model=GlobeEditedResponse)

@@ -316,6 +316,32 @@ async def test_edit_reply_happy(client, db_session):
     assert r.json()["body"] == "edited"
 
 
+# ─────────────────────── GLOBE-2 replies pagination ──────────────────────
+
+async def test_list_replies_endpoint(client, db_session):
+    token, _ = await _signup(client, db_session, _email("g-replpage"))
+    await _claim(client, token, _uniq("replpager"))
+    z = await _create_zone(client, token)
+    p = await client.post(f"/globe/zones/{z['id']}/posts",
+                          json={"body": "root"}, headers=_auth(token))
+    post_id = p.json()["id"]
+    for i in range(2):
+        await client.post(f"/globe/posts/{post_id}/replies",
+                          json={"body": f"r{i}"}, headers=_auth(token))
+    r = await client.get(f"/globe/posts/{post_id}/replies", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["replies"]) == 2
+    assert body["has_more"] is False
+    assert body["next_offset"] is None
+
+
+async def test_list_replies_missing_post_404(client, db_session):
+    token, _ = await _signup(client, db_session, _email("g-replmiss"))
+    r = await client.get(f"/globe/posts/{uuid4()}/replies", headers=_auth(token))
+    assert r.status_code == 404
+
+
 # ─────────────────────── hide / unhide ───────────────────────────────────
 
 async def test_hide_removes_from_feed(client, db_session):
