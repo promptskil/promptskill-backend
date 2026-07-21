@@ -88,13 +88,15 @@ class AnthropicClient(ModelClient):
         max_tokens: int = 1000,
     ) -> str:
         client = self._sdk()
+        kwargs = {
+            "model": model_id,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": user_message}],
+        }
+        if system_prompt:
+            kwargs["system"] = system_prompt
         try:
-            response = await client.messages.create(
-                model=model_id,
-                max_tokens=max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
-            )
+            response = await client.messages.create(**kwargs)
             return _extract_anthropic_text(response)
         except anthropic.RateLimitError as exc:
             raise ProviderRateLimitError("anthropic", exc) from exc
@@ -162,13 +164,14 @@ class OpenAIClient(ModelClient):
         max_tokens: int = 1000,
     ) -> str:
         client = self._sdk()
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_message})
         try:
             response = await client.chat.completions.create(
                 model=model_id,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=messages,
                 **{self._token_param(): max_tokens},
             )
             text = response.choices[0].message.content
@@ -218,7 +221,7 @@ class GeminiClient(ModelClient):
                 model=model_id,
                 contents=user_message,
                 config=genai.types.GenerateContentConfig(
-                    system_instruction=system_prompt,
+                    system_instruction=system_prompt or None,
                     max_output_tokens=max_tokens,
                 ),
             )

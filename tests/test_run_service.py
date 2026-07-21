@@ -22,6 +22,16 @@ async def test_uncapped_success():
     assert result == {"model": "chatgpt", "answer": "hi"}
 
 
+async def test_passthrough_sends_empty_system_prompt():
+    # Engine 2 is a pure passthrough: the finished Vaine prompt goes through as
+    # the user message with NO system layer, so the model returns natural output.
+    c = _client("hi")
+    with patch.object(run_service, "get_client", return_value=c):
+        await run_service.run_prompt("chatgpt", "finished vaine prompt", uuid4())
+    assert c.agenerate.call_args.kwargs["system_prompt"] == ""
+    assert c.agenerate.call_args.kwargs["user_message"] == "finished vaine prompt"
+
+
 async def test_provider_error_maps_502():
     c = AsyncMock()
     c.agenerate = AsyncMock(
