@@ -32,6 +32,7 @@ from app.models.globe import (
 
 _MAX_LIMIT = 50
 _INLINE_REPLIES = 20  # max replies inlined per post in a thread (GLOBE-2)
+_MIN_SEARCH_CHARS = 3  # pg_trgm needs a full trigram; shorter q → skip search
 
 
 def _validate_page(limit: int, offset: int) -> None:
@@ -462,8 +463,9 @@ async def get_zones(
         GlobeHiddenZone.user_id == user_id
     )
     stmt = select(GlobeZone).where(GlobeZone.id.not_in(hidden))
-    if q:
-        pattern = f"%{_like_escape(q)}%"
+    term = q.strip() if q else ""
+    if len(term) >= _MIN_SEARCH_CHARS:
+        pattern = f"%{_like_escape(term)}%"
         matching = (
             select(GlobeZone.id)
             .outerjoin(GlobePost, GlobePost.zone_id == GlobeZone.id)
