@@ -540,3 +540,27 @@ async def test_get_replies_missing_post_404(db_session):
     with pytest.raises(HTTPException) as exc:
         await get_replies(uuid4(), 20, 0, db_session)
     assert exc.value.status_code == 404
+
+
+# ─────────────────────── search min-length guard ─────────────────────────
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_get_zones_short_query_returns_unfiltered(db_session, user_a):
+    await _profile(db_session, user_a, _uniq("shortq"))
+    z1 = await create_zone(user_a.id, "startup", "Alpha zone", db_session)
+    z2 = await create_zone(user_a.id, "startup", "Beta zone", db_session)
+    # 2 chars, below min → search skipped → unfiltered browse list (both).
+    res = await get_zones(user_id=user_a.id, limit=50, offset=0, q="qz", db=db_session)
+    ids = [z["id"] for z in res["zones"]]
+    assert z1["id"] in ids and z2["id"] in ids
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_get_zones_min_length_query_searches(db_session, user_a):
+    await _profile(db_session, user_a, _uniq("minq"))
+    z1 = await create_zone(user_a.id, "startup", "zzqfindme title", db_session)
+    z2 = await create_zone(user_a.id, "startup", "unrelated other", db_session)
+    # 3 chars, at threshold → search runs → only the match.
+    res = await get_zones(user_id=user_a.id, limit=50, offset=0, q="zzq", db=db_session)
+    ids = [z["id"] for z in res["zones"]]
+    assert z1["id"] in ids and z2["id"] not in ids
