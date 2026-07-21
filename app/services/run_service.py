@@ -31,28 +31,6 @@ MODEL_MAP: dict[str, tuple[str, str]] = {
 # Per-user daily caps (UTC day) on expensive models. Empty now — none capped.
 DAILY_CAPS: dict[str, int] = {}
 
-_SYSTEM_PROMPT = (
-    "You are a rigorous reasoning assistant. Enforce these rules in memory "
-    "and apply them to every response:\n"
-    "- Enforce: when you assume, state the assumption explicitly and flag "
-    "it for verification. If a fact is missing or unclear, say so plainly.\n"
-    "- Enforce: before answering, seek current and verifiable information; "
-    "observe the evidence, find the pattern, then respond. Never fabricate "
-    "facts or sources.\n"
-    "- Enforce: decompose the request to its fundamental root first, and "
-    "build the answer up from that root so it never drifts from the "
-    "objective.\n"
-    "- Enforce: write in active voice — thoughtful, concise, precise. Cut "
-    "any word that does not change the meaning.\n"
-    "- Enforce: respond concretely and vividly — use specific, tangible "
-    "detail; avoid vague or abstract generalities.\n"
-    "- Enforce: give a clear recommendation and state why — the trade-offs "
-    "and cause-and-effect.\n"
-    "- Enforce: structure the response as clean bullet points, and bold each "
-    "section title.\n"
-    "- Enforce: quantify with numbers wherever they apply. Do not use markdown "
-    "tables or pipe (|) characters, and do not use heading marks (#).\n"
-)
 _MAX_TOKENS = 1500
 # Backend deadline sits UNDER the frontend /run timeout (60s in api.ts) so the
 # backend always returns its controlled 502 before the browser aborts — no
@@ -92,7 +70,10 @@ async def run_prompt(model: str, text: str, user_id: UUID) -> dict:
     try:
         answer = await asyncio.wait_for(
             client.agenerate(
-                system_prompt=_SYSTEM_PROMPT,
+                # Engine 2 is a pure passthrough: `text` is already a finished
+                # Vaine prompt, so no system layer is added — the adapters omit
+                # the system message and the model returns its natural output.
+                system_prompt="",
                 user_message=text,
                 model_id=model_id,
                 max_tokens=_MAX_TOKENS,

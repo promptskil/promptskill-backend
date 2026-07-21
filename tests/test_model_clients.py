@@ -261,3 +261,47 @@ async def test_grok_sdk_client_constructed_once_with_xai_config():
         await client.agenerate("sys", "b", "grok-3")
     assert ctor.call_count == 1
     assert ctor.call_args.kwargs["base_url"] == "https://api.x.ai/v1"
+
+
+# ─────────────── empty system prompt → omitted per provider ──────────────
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_anthropic_omits_system_when_empty():
+    client = AnthropicClient()
+    mock_api = MagicMock()
+    mock_api.messages.create = AsyncMock(return_value=_anthropic_response("x"))
+    with patch(
+        "app.services.model_clients.anthropic.AsyncAnthropic", return_value=mock_api
+    ):
+        await client.agenerate("", "user msg", "model")
+    assert "system" not in mock_api.messages.create.call_args.kwargs
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_openai_omits_system_when_empty():
+    client = OpenAIClient()
+    mock_api = MagicMock()
+    mock_api.chat.completions.create = AsyncMock(return_value=_openai_response("x"))
+    with patch(
+        "app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api
+    ):
+        await client.agenerate("", "hello user", "gpt-4o")
+    assert mock_api.chat.completions.create.call_args.kwargs["messages"] == [
+        {"role": "user", "content": "hello user"}
+    ]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_gemini_omits_system_when_empty():
+    client = GeminiClient()
+    mock_genai_client = MagicMock()
+    mock_genai_client.aio.models.generate_content = AsyncMock(
+        return_value=_gemini_response("x")
+    )
+    with patch(
+        "app.services.model_clients.genai.Client", return_value=mock_genai_client
+    ):
+        await client.agenerate("", "hello", "gemini-2.0-flash")
+    cfg = mock_genai_client.aio.models.generate_content.call_args.kwargs["config"]
+    assert cfg.system_instruction is None
