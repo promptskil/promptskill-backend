@@ -1,11 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import bearer_scheme
-from app.cookies import is_web_cookie_origin, set_session_cookie
+from app.cookies import (
+    SESSION_COOKIE_NAME,
+    clear_session_cookie,
+    is_web_cookie_origin,
+    set_session_cookie,
+)
 from app.database import get_db
+from app.models import Session
 from app.rate_limit import limiter
 from app.schemas import (
     ForgotPasswordRequest,
@@ -65,17 +72,30 @@ async def login(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
+    response: Response,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    # Idempotent: missing/invalid bearer still returns success.
-    # DELETE WHERE token=? is a no-op if token doesn't exist.
-    if credentials is None:
+    # Delete every session the client presented — bearer (mobile/current web)
+    # and/or the cookie (web post-migration) — in one statement so no live
+    # session is left behind, then always clear the cookie. Idempotent.
+    tokens = set()
+    if credentials is not None:
+        tokens.add(credentials.credentials)
+    cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if cookie_token:
+        tokens.add(cookie_token)
+
+    if not tokens:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header required",
+            detail="Authorization required",
         )
-    await auth_service.logout(credentials.credentials, db)
+
+    await db.execute(delete(Session).where(Session.token.in_(tokens)))
+    await db.commit()
+    clear_session_cookie(response)
     return {"success": True}
 
 
