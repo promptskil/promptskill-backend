@@ -203,3 +203,61 @@ async def test_gemini_async_api_error():
         with pytest.raises(ProviderAPIError) as exc_info:
             await client.agenerate("sys", "msg", "gemini-2.0-flash")
     assert exc_info.value.provider == "gemini"
+
+
+# ─────────────── SDK client reuse — constructed once per instance ──────────
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_anthropic_sdk_client_constructed_once():
+    client = AnthropicClient()
+    mock_api = MagicMock()
+    mock_api.messages.create = AsyncMock(return_value=_anthropic_response("x"))
+    with patch(
+        "app.services.model_clients.anthropic.AsyncAnthropic", return_value=mock_api
+    ) as ctor:
+        await client.agenerate("sys", "a", "model")
+        await client.agenerate("sys", "b", "model")
+    assert ctor.call_count == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_openai_sdk_client_constructed_once():
+    client = OpenAIClient()
+    mock_api = MagicMock()
+    mock_api.chat.completions.create = AsyncMock(return_value=_openai_response("x"))
+    with patch(
+        "app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api
+    ) as ctor:
+        await client.agenerate("sys", "a", "gpt-4o")
+        await client.agenerate("sys", "b", "gpt-4o")
+    assert ctor.call_count == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_gemini_sdk_client_constructed_once():
+    client = GeminiClient()
+    mock_genai_client = MagicMock()
+    mock_genai_client.aio.models.generate_content = AsyncMock(
+        return_value=_gemini_response("x")
+    )
+    with patch(
+        "app.services.model_clients.genai.Client", return_value=mock_genai_client
+    ) as ctor:
+        await client.agenerate("sys", "a", "gemini-2.0-flash")
+        await client.agenerate("sys", "b", "gemini-2.0-flash")
+    assert ctor.call_count == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_grok_sdk_client_constructed_once_with_xai_config():
+    client = GrokClient()
+    mock_api = MagicMock()
+    mock_api.chat.completions.create = AsyncMock(return_value=_openai_response("x"))
+    with patch(
+        "app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api
+    ) as ctor:
+        await client.agenerate("sys", "a", "grok-3")
+        await client.agenerate("sys", "b", "grok-3")
+    assert ctor.call_count == 1
+    assert ctor.call_args.kwargs["base_url"] == "https://api.x.ai/v1"

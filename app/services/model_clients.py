@@ -67,6 +67,19 @@ class ModelClient(ABC):
 class AnthropicClient(ModelClient):
     """Wraps anthropic SDK (async)."""
 
+    def __init__(self) -> None:
+        self._client: anthropic.AsyncAnthropic | None = None
+
+    def _sdk(self) -> anthropic.AsyncAnthropic:
+        # Lazy + cached: one client (with its httpx keep-alive pool) reused
+        # across requests — no new TCP/TLS handshake per generate. Lazy so it
+        # binds to the running event loop, not import time.
+        if self._client is None:
+            self._client = anthropic.AsyncAnthropic(
+                api_key=settings.ANTHROPIC_API_KEY
+            )
+        return self._client
+
     async def agenerate(
         self,
         system_prompt: str,
@@ -74,7 +87,7 @@ class AnthropicClient(ModelClient):
         model_id: str,
         max_tokens: int = 1000,
     ) -> str:
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        client = self._sdk()
         try:
             response = await client.messages.create(
                 model=model_id,
@@ -115,6 +128,9 @@ class OpenAIClient(ModelClient):
     Subclassed by GrokClient with different base_url.
     """
 
+    def __init__(self) -> None:
+        self._client: openai.AsyncOpenAI | None = None
+
     def _get_base_url(self) -> str | None:
         """Override in subclasses to change the API endpoint."""
         return None  # default OpenAI endpoint
@@ -127,6 +143,17 @@ class OpenAIClient(ModelClient):
         """GPT-5 family requires max_completion_tokens, not max_tokens."""
         return "max_completion_tokens"
 
+    def _sdk(self) -> openai.AsyncOpenAI:
+        # Lazy + cached per instance — the Grok subclass caches its own client
+        # built from the overridden base_url/api_key, never sharing OpenAI's.
+        # Lazy so it binds to the running event loop, not import time.
+        if self._client is None:
+            self._client = openai.AsyncOpenAI(
+                api_key=self._get_api_key(),
+                base_url=self._get_base_url(),
+            )
+        return self._client
+
     async def agenerate(
         self,
         system_prompt: str,
@@ -134,10 +161,7 @@ class OpenAIClient(ModelClient):
         model_id: str,
         max_tokens: int = 1000,
     ) -> str:
-        client = openai.AsyncOpenAI(
-            api_key=self._get_api_key(),
-            base_url=self._get_base_url(),
-        )
+        client = self._sdk()
         try:
             response = await client.chat.completions.create(
                 model=model_id,
@@ -171,6 +195,16 @@ class GeminiClient(ModelClient):
     Exception: google.genai.errors.APIError (check .code for 429).
     """
 
+    def __init__(self) -> None:
+        self._client: genai.Client | None = None
+
+    def _sdk(self) -> genai.Client:
+        # Lazy + cached: reuse one genai client across requests. Lazy so it
+        # binds to the running event loop, not import time.
+        if self._client is None:
+            self._client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        return self._client
+
     async def agenerate(
         self,
         system_prompt: str,
@@ -178,7 +212,7 @@ class GeminiClient(ModelClient):
         model_id: str,
         max_tokens: int = 1000,
     ) -> str:
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        client = self._sdk()
         try:
             response = await client.aio.models.generate_content(
                 model=model_id,
