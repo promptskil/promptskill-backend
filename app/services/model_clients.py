@@ -127,6 +127,10 @@ class AnthropicClient(ModelClient):
             "model": model_id,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": user_message}],
+            # Live web search (server-side, direct); max_uses bounds latency/cost.
+            "tools": [
+                {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+            ],
         }
         if system_prompt:
             kwargs["system"] = system_prompt
@@ -229,19 +233,24 @@ class OpenAIClient(ModelClient):
         max_tokens: int = 1000,
     ) -> AsyncIterator[str]:
         client = self._sdk()
-        messages = []
+        kwargs = {
+            "model": model_id,
+            "input": user_message,
+            "tools": [{"type": "web_search", "search_context_size": "low"}],
+            # gpt-5.5 spends reasoning tokens before output; a low cap returns an
+            # "incomplete" response with no text (and still bills). Floor at 8192
+            # per OpenAI's web_search guidance.
+            "max_output_tokens": max(max_tokens, 8192),
+        }
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": user_message})
+            kwargs["instructions"] = system_prompt
         try:
-            async with client.chat.completions.stream(
-                model=model_id,
-                messages=messages,
-                **{self._token_param(): max_tokens},
-            ) as stream:
+            async with client.responses.stream(**kwargs) as stream:
                 async for event in stream:
-                    if event.type == "content.delta" and event.delta:
+                    if event.type == "response.output_text.delta" and event.delta:
                         yield event.delta
+                    elif event.type in ("response.incomplete", "response.failed"):
+                        raise ProviderAPIError("openai", RuntimeError(event.type))
         except openai.RateLimitError as exc:
             raise ProviderRateLimitError("openai", exc) from exc
         except openai.APIStatusError as exc:
@@ -313,6 +322,13 @@ class GeminiClient(ModelClient):
                 config=genai.types.GenerateContentConfig(
                     system_instruction=system_prompt or None,
                     max_output_tokens=max_tokens,
+                    # Grounding with Google Search — live web results; the model
+                    # decides when to search (no per-request cap param exists).
+                    tools=[
+                        genai.types.Tool(
+                            google_search=genai.types.GoogleSearch()
+                        )
+                    ],
                 ),
             )
             async for chunk in stream:
@@ -343,6 +359,38 @@ class GrokClient(OpenAIClient):
 
     def _token_param(self) -> str:
         return "max_tokens"  # xAI still accepts the classic param (Grok works today)
+
+    async def astream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        model_id: str,
+        max_tokens: int = 1000,
+    ) -> AsyncIterator[str]:
+        # xAI Web Search is the OpenAI Responses API + web_search tool at the
+        # xAI base_url — NOT the legacy chat.completions search_parameters path.
+        client = self._sdk()
+        kwargs = {
+            "model": model_id,
+            "input": user_message,
+            "tools": [{"type": "web_search"}],
+            # grok-4.5 is a reasoning model; floor the budget so reasoning tokens
+            # don't starve the visible answer (same rationale as OpenAI).
+            "max_output_tokens": max(max_tokens, 8192),
+        }
+        if system_prompt:
+            kwargs["instructions"] = system_prompt
+        try:
+            async with client.responses.stream(**kwargs) as stream:
+                async for event in stream:
+                    if event.type == "response.output_text.delta" and event.delta:
+                        yield event.delta
+                    elif event.type in ("response.incomplete", "response.failed"):
+                        raise ProviderAPIError("xai", RuntimeError(event.type))
+        except openai.RateLimitError as exc:
+            raise ProviderRateLimitError("xai", exc) from exc
+        except openai.APIStatusError as exc:
+            raise ProviderAPIError("xai", exc) from exc
 
 
 # ─────────────────── Client registry ──────────────────────────
