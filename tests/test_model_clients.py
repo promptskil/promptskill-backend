@@ -369,30 +369,50 @@ async def test_anthropic_astream_yields_deltas():
     ):
         chunks = [c async for c in client.astream("", "hi", "model")]
     assert chunks == ["He", "llo"]
-    assert "system" not in mock_api.messages.stream.call_args.kwargs
+    kwargs = mock_api.messages.stream.call_args.kwargs
+    assert "system" not in kwargs
+    assert kwargs["tools"][0]["type"] == "web_search_20250305"
+    assert kwargs["tools"][0]["max_uses"] == 5
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_openai_astream_yields_deltas():
+async def test_openai_astream_uses_responses_web_search():
     client = OpenAIClient()
     mock_api = MagicMock()
-    mock_api.chat.completions.stream = MagicMock(
+    mock_api.responses.stream = MagicMock(
         return_value=_FakeOpenAIStream(
             [
-                _openai_event("He"),
-                _openai_event("llo"),
-                _openai_event(None, type_="content.done"),
+                _openai_event("Live ", type_="response.output_text.delta"),
+                _openai_event("news", type_="response.output_text.delta"),
+                _openai_event(None, type_="response.completed"),
             ]
         )
     )
     with patch(
         "app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api
     ):
-        chunks = [c async for c in client.astream("", "hi", "gpt-4o")]
-    assert chunks == ["He", "llo"]
-    kwargs = mock_api.chat.completions.stream.call_args.kwargs
-    assert kwargs["messages"] == [{"role": "user", "content": "hi"}]
-    assert "max_completion_tokens" in kwargs
+        chunks = [c async for c in client.astream("", "gpu news", "gpt-5.5")]
+    assert chunks == ["Live ", "news"]
+    kwargs = mock_api.responses.stream.call_args.kwargs
+    assert {"type": "web_search", "search_context_size": "low"} in kwargs["tools"]
+    assert kwargs["input"] == "gpu news"
+    assert kwargs["max_output_tokens"] >= 8192
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_openai_astream_incomplete_maps_error():
+    client = OpenAIClient()
+    mock_api = MagicMock()
+    mock_api.responses.stream = MagicMock(
+        return_value=_FakeOpenAIStream(
+            [_openai_event(None, type_="response.incomplete")]
+        )
+    )
+    with patch(
+        "app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api
+    ):
+        with pytest.raises(ProviderAPIError):
+            [c async for c in client.astream("", "q", "gpt-5.5")]
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -412,14 +432,37 @@ async def test_gemini_astream_yields_deltas():
     call = mock_genai_client.aio.models.generate_content_stream.call_args
     cfg = call.kwargs["config"]
     assert cfg.system_instruction is None
+    assert cfg.tools[0].google_search is not None
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_grok_astream_uses_xai_base_url_and_max_tokens():
+async def test_gemini_astream_rate_limit():
+    from google.genai import errors as genai_errors
+
+    client = GeminiClient()
+    err = genai_errors.APIError.__new__(genai_errors.APIError)
+    Exception.__init__(err, "rate limited")
+    err.code = 429
+    mock_genai_client = MagicMock()
+    mock_genai_client.aio.models.generate_content_stream = AsyncMock(side_effect=err)
+    with patch(
+        "app.services.model_clients.genai.Client", return_value=mock_genai_client
+    ):
+        with pytest.raises(ProviderRateLimitError):
+            [c async for c in client.astream("", "q", "gemini-2.0-flash")]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_grok_astream_uses_responses_web_search_xai():
     client = GrokClient()
     mock_api = MagicMock()
-    mock_api.chat.completions.stream = MagicMock(
-        return_value=_FakeOpenAIStream([_openai_event("hi")])
+    mock_api.responses.stream = MagicMock(
+        return_value=_FakeOpenAIStream(
+            [
+                _openai_event("hi", type_="response.output_text.delta"),
+                _openai_event(None, type_="response.completed"),
+            ]
+        )
     )
     with patch(
         "app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api
@@ -427,9 +470,26 @@ async def test_grok_astream_uses_xai_base_url_and_max_tokens():
         chunks = [c async for c in client.astream("", "q", "grok-4.5")]
     assert chunks == ["hi"]
     assert ctor.call_args.kwargs["base_url"] == "https://api.x.ai/v1"
-    kwargs = mock_api.chat.completions.stream.call_args.kwargs
-    assert "max_tokens" in kwargs
-    assert "max_completion_tokens" not in kwargs
+    kwargs = mock_api.responses.stream.call_args.kwargs
+    assert {"type": "web_search"} in kwargs["tools"]
+    assert kwargs["input"] == "q"
+    assert kwargs["max_output_tokens"] >= 8192
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_grok_astream_incomplete_maps_error():
+    client = GrokClient()
+    mock_api = MagicMock()
+    mock_api.responses.stream = MagicMock(
+        return_value=_FakeOpenAIStream(
+            [_openai_event(None, type_="response.incomplete")]
+        )
+    )
+    with patch(
+        "app.services.model_clients.openai.AsyncOpenAI", return_value=mock_api
+    ):
+        with pytest.raises(ProviderAPIError):
+            [c async for c in client.astream("", "q", "grok-4.5")]
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -445,4 +505,20 @@ async def test_anthropic_astream_rate_limit():
         "app.services.model_clients.anthropic.AsyncAnthropic", return_value=mock_api
     ):
         with pytest.raises(ProviderRateLimitError):
+            [c async for c in client.astream("sys", "hi", "model")]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_anthropic_astream_api_error():
+    import anthropic
+
+    client = AnthropicClient()
+    err = anthropic.APIStatusError.__new__(anthropic.APIStatusError)
+    Exception.__init__(err, "server error")
+    mock_api = MagicMock()
+    mock_api.messages.stream = MagicMock(side_effect=err)
+    with patch(
+        "app.services.model_clients.anthropic.AsyncAnthropic", return_value=mock_api
+    ):
+        with pytest.raises(ProviderAPIError):
             [c async for c in client.astream("sys", "hi", "model")]
