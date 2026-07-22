@@ -14,6 +14,7 @@ Spec: path-b-multi-provider-architecture.md — Requirements §1
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 
 import anthropic
 import openai
@@ -60,6 +61,17 @@ class ModelClient(ABC):
         """Async generation — FastAPI path."""
         ...
 
+    @abstractmethod
+    def astream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        model_id: str,
+        max_tokens: int = 1000,
+    ) -> AsyncIterator[str]:
+        """Async streaming generation — yields text deltas."""
+        ...
+
 
 # ─────────────────── Anthropic ────────────────────────────────
 
@@ -98,6 +110,30 @@ class AnthropicClient(ModelClient):
         try:
             response = await client.messages.create(**kwargs)
             return _extract_anthropic_text(response)
+        except anthropic.RateLimitError as exc:
+            raise ProviderRateLimitError("anthropic", exc) from exc
+        except anthropic.APIStatusError as exc:
+            raise ProviderAPIError("anthropic", exc) from exc
+
+    async def astream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        model_id: str,
+        max_tokens: int = 1000,
+    ) -> AsyncIterator[str]:
+        client = self._sdk()
+        kwargs = {
+            "model": model_id,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": user_message}],
+        }
+        if system_prompt:
+            kwargs["system"] = system_prompt
+        try:
+            async with client.messages.stream(**kwargs) as stream:
+                async for text in stream.text_stream:
+                    yield text
         except anthropic.RateLimitError as exc:
             raise ProviderRateLimitError("anthropic", exc) from exc
         except anthropic.APIStatusError as exc:
@@ -185,6 +221,32 @@ class OpenAIClient(ModelClient):
         except openai.APIStatusError as exc:
             raise ProviderAPIError("openai", exc) from exc
 
+    async def astream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        model_id: str,
+        max_tokens: int = 1000,
+    ) -> AsyncIterator[str]:
+        client = self._sdk()
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_message})
+        try:
+            async with client.chat.completions.stream(
+                model=model_id,
+                messages=messages,
+                **{self._token_param(): max_tokens},
+            ) as stream:
+                async for event in stream:
+                    if event.type == "content.delta" and event.delta:
+                        yield event.delta
+        except openai.RateLimitError as exc:
+            raise ProviderRateLimitError("openai", exc) from exc
+        except openai.APIStatusError as exc:
+            raise ProviderAPIError("openai", exc) from exc
+
 
 # ─────────────────── Gemini (Google GenAI) ────────────────────
 
@@ -231,6 +293,31 @@ class GeminiClient(ModelClient):
                     "gemini", RuntimeError("response_missing_text")
                 )
             return text
+        except genai_errors.APIError as exc:
+            if exc.code == 429:
+                raise ProviderRateLimitError("gemini", exc) from exc
+            raise ProviderAPIError("gemini", exc) from exc
+
+    async def astream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        model_id: str,
+        max_tokens: int = 1000,
+    ) -> AsyncIterator[str]:
+        client = self._sdk()
+        try:
+            stream = await client.aio.models.generate_content_stream(
+                model=model_id,
+                contents=user_message,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=system_prompt or None,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            async for chunk in stream:
+                if chunk.text:
+                    yield chunk.text
         except genai_errors.APIError as exc:
             if exc.code == 429:
                 raise ProviderRateLimitError("gemini", exc) from exc
